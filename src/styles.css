@@ -19,6 +19,22 @@ body {
   margin: 0;
 }
 
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 a {
   color: #1261a6;
   font-weight: 700;
@@ -39,6 +55,22 @@ a:hover {
 .page-centered {
   display: grid;
   place-items: center;
+}
+
+.top-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  padding: 4px 0 18px;
+}
+
+.top-nav a {
+  color: #4d5968;
+  font-size: 0.92rem;
+}
+
+.top-nav a:hover {
+  color: #1261a6;
 }
 
 .hero {
@@ -292,6 +324,152 @@ dd {
   border-color: #f4c5bf;
 }
 
+.admin-page {
+  max-width: 1040px;
+}
+
+.admin-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: end;
+  padding: 26px 0 28px;
+}
+
+.admin-header h1 {
+  margin-bottom: 10px;
+  font-size: clamp(2rem, 7vw, 3.6rem);
+}
+
+.admin-form {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-section {
+  padding: 22px;
+  border: 1px solid #d8dee6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field span {
+  color: #4d5968;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1b1f23;
+}
+
+input,
+select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+textarea {
+  min-height: 92px;
+  resize: vertical;
+  padding: 10px 12px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #1261a6;
+  outline: 3px solid rgba(18, 97, 166, 0.16);
+}
+
+.editor-list {
+  display: grid;
+  gap: 18px;
+}
+
+.editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding-top: 18px;
+  border-top: 1px solid #e6eaf0;
+}
+
+.editor-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-weight: 800;
+}
+
+.primary-button {
+  background: #1261a6;
+  color: #ffffff;
+}
+
+.secondary-button {
+  margin-top: 18px;
+  border-color: #cfd6df;
+  background: #f8fafc;
+  color: #223041;
+}
+
+.danger-button {
+  border-color: #f4c5bf;
+  background: #fff0ee;
+  color: #b42318;
+}
+
+.inline-error,
+.inline-success {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
+.inline-error {
+  border: 1px solid #f4c5bf;
+  background: #fff0ee;
+  color: #b42318;
+}
+
+.inline-success {
+  border: 1px solid #b7e3cb;
+  background: #edf8f2;
+  color: #0f7b4f;
+}
+
 .footer {
   display: flex;
   flex-wrap: wrap;
@@ -303,6 +481,7 @@ dd {
 
 @media (max-width: 900px) {
   .hero,
+  .admin-header,
   .content-grid {
     grid-template-columns: 1fr;
   }
@@ -314,6 +493,10 @@ dd {
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-header .primary-button {
+    width: 100%;
   }
 }
 
@@ -329,8 +512,18 @@ dd {
 
   .panel,
   .service-card,
-  .notice {
+  .notice,
+  .admin-section {
     padding: 16px;
+  }
+
+  .form-grid,
+  .editor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .danger-button {
+    width: 100%;
   }
 
   dl {
