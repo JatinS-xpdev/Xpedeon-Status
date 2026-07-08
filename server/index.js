@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,7 @@ const configPath = path.join(rootDir, 'status.config.json');
 const distDir = path.join(rootDir, 'dist');
 const port = process.env.PORT || 3001;
 const serviceStatuses = new Set(['operational', 'degraded', 'maintenance', 'outage']);
+const adminPassword = process.env.STATUS_ADMIN_PASSWORD || 'admin';
 
 const app = express();
 
@@ -29,6 +31,28 @@ function assertString(value, fieldName) {
   if (typeof value !== 'string') {
     throw new Error(`${fieldName} must be a string`);
   }
+}
+
+function passwordsMatch(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const expected = Buffer.from(adminPassword);
+  const actual = Buffer.from(value);
+
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function requireAdminPassword(request, response, next) {
+  if (!passwordsMatch(request.get('x-admin-password'))) {
+    response.status(401).json({
+      error: 'Invalid admin password'
+    });
+    return;
+  }
+
+  next();
 }
 
 function validateStatusConfig(config) {
@@ -93,7 +117,20 @@ app.get('/api/status', async (_request, response) => {
   }
 });
 
-app.put('/api/status', async (request, response) => {
+app.post('/api/admin/login', (request, response) => {
+  if (!passwordsMatch(request.body?.password)) {
+    response.status(401).json({
+      error: 'Invalid admin password'
+    });
+    return;
+  }
+
+  response.json({
+    ok: true
+  });
+});
+
+app.put('/api/status', requireAdminPassword, async (request, response) => {
   try {
     response.json(await writeStatusConfig(request.body));
   } catch (error) {

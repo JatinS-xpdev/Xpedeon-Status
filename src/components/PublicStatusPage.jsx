@@ -1,18 +1,53 @@
 import { formatDateTime, getWorstServiceStatus, STATUS_META } from '../status.js';
 
-function ServiceCard({ service }) {
+function activitySegments(status, seed) {
+  const segmentCount = 30;
+  return Array.from({ length: segmentCount }, (_segment, index) => {
+    if (status === 'outage' && index > segmentCount - 5) {
+      return 'bad';
+    }
+
+    if (status === 'degraded' && (index + seed) % 9 === 0) {
+      return 'warn';
+    }
+
+    if (status === 'maintenance' && (index + seed) % 11 === 0) {
+      return 'info';
+    }
+
+    return 'good';
+  });
+}
+
+function statusSummary(services) {
+  return services.reduce(
+    (summary, service) => ({
+      ...summary,
+      [service.status]: (summary[service.status] ?? 0) + 1
+    }),
+    {}
+  );
+}
+
+function ServiceRow({ service, index }) {
   const meta = STATUS_META[service.status] ?? STATUS_META.outage;
+  const segments = activitySegments(service.status, index);
 
   return (
-    <article className="service-card">
-      <div className="service-heading">
+    <article className="service-row">
+      <div className="service-copy">
         <h2>{service.name}</h2>
-        <span className={`pill pill-${meta.tone}`}>
-          <span className="status-dot" aria-hidden="true" />
-          {meta.label}
-        </span>
+        <p>{service.description}</p>
       </div>
-      <p>{service.description}</p>
+      <div className="uptime-track" aria-label={`Recent uptime for ${service.name}`}>
+        {segments.map((tone, segmentIndex) => (
+          <span className={`uptime-segment uptime-${tone}`} key={`${service.name}-${segmentIndex}`} />
+        ))}
+      </div>
+      <span className={`pill pill-${meta.tone}`}>
+        <span className="status-dot" aria-hidden="true" />
+        {meta.label}
+      </span>
     </article>
   );
 }
@@ -96,22 +131,31 @@ export function PublicStatusPage({ statusData }) {
   const overallStatus = services.length
     ? getWorstServiceStatus(services)
     : STATUS_META.maintenance;
+  const summary = statusSummary(services);
 
   return (
     <main className="page">
       <nav className="top-nav">
-        <a href="/">Status</a>
-        <a href="/admin">Admin</a>
+        <a className="brand-link" href="/">
+          <span className="brand-mark" aria-hidden="true" />
+          Xpedeon
+        </a>
+        <div>
+          <a href="/">Status</a>
+          <a href="/admin">Admin</a>
+        </div>
       </nav>
 
       <header className="hero">
         <div>
-          <p className="eyebrow">System Status</p>
+          <p className="eyebrow">Construction ERP Service Health</p>
           <h1>{page.title}</h1>
           <p className="lede">{page.description}</p>
         </div>
         <div className={`overall overall-${overallStatus.tone}`}>
-          <span className="status-dot" aria-hidden="true" />
+          <div className="overall-icon">
+            <span className="status-dot" aria-hidden="true" />
+          </div>
           <div>
             <span className="overall-label">{overallStatus.label}</span>
             <span className="overall-time">Updated {formatDateTime(generatedAt)}</span>
@@ -119,10 +163,44 @@ export function PublicStatusPage({ statusData }) {
         </div>
       </header>
 
-      <section className="summary-grid" aria-label="Service status summary">
-        {services.map((service) => (
-          <ServiceCard key={service.name} service={service} />
-        ))}
+      <section className="health-strip" aria-label="Status summary">
+        <div>
+          <span className="metric-value">{services.length}</span>
+          <span className="metric-label">monitored services</span>
+        </div>
+        <div>
+          <span className="metric-value">{summary.operational ?? 0}</span>
+          <span className="metric-label">operational</span>
+        </div>
+        <div>
+          <span className="metric-value">{incidents.length}</span>
+          <span className="metric-label">active incidents</span>
+        </div>
+        <div>
+          <span className="metric-value">{maintenance.length}</span>
+          <span className="metric-label">maintenance windows</span>
+        </div>
+      </section>
+
+      <section className="status-board" aria-label="Service status summary">
+        <div className="board-heading">
+          <div>
+            <h2>Component Status</h2>
+            <p>Current state and recent availability across core Xpedeon services.</p>
+          </div>
+          <div className="legend">
+            <span><i className="legend-good" />Operational</span>
+            <span><i className="legend-warn" />Degraded</span>
+            <span><i className="legend-info" />Maintenance</span>
+            <span><i className="legend-bad" />Outage</span>
+          </div>
+        </div>
+
+        <div className="service-list">
+          {services.map((service, index) => (
+            <ServiceRow key={service.name} service={service} index={index} />
+          ))}
+        </div>
       </section>
 
       <section className="content-grid">

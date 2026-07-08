@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchStatus, saveStatus } from '../api.js';
+import { fetchStatus, loginAdmin, saveStatus } from '../api.js';
 import {
   createEmptyIncident,
   createEmptyMaintenance,
@@ -8,6 +8,8 @@ import {
   STATUS_META
 } from '../status.js';
 import { Notice } from './Notice.jsx';
+
+const adminPasswordStorageKey = 'xpedeon-status-admin-password';
 
 function stripGeneratedFields(config) {
   const { generatedAt, ...editableConfig } = config;
@@ -86,13 +88,53 @@ function EditorList({ title, count, onAdd, children }) {
 export function AdminPage() {
   const [config, setConfig] = useState(null);
   const [error, setError] = useState('');
+  const [password, setPassword] = useState(() => sessionStorage.getItem(adminPasswordStorageKey) ?? '');
+  const [isAuthenticated, setIsAuthenticated] = useState(() =>
+    Boolean(sessionStorage.getItem(adminPasswordStorageKey))
+  );
   const [saveState, setSaveState] = useState('idle');
+  const [loginState, setLoginState] = useState('idle');
 
   useEffect(() => {
-    fetchStatus()
+    if (!isAuthenticated) {
+      return;
+    }
+
+    loginAdmin(password)
+      .then(fetchStatus)
       .then((data) => setConfig(stripGeneratedFields(data)))
-      .catch((requestError) => setError(requestError.message));
-  }, []);
+      .catch((requestError) => {
+        sessionStorage.removeItem(adminPasswordStorageKey);
+        setIsAuthenticated(false);
+        setConfig(null);
+        setError(requestError.message);
+      });
+  }, [isAuthenticated, password]);
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    setError('');
+    setLoginState('checking');
+
+    try {
+      await loginAdmin(password);
+      sessionStorage.setItem(adminPasswordStorageKey, password);
+      setIsAuthenticated(true);
+      setLoginState('idle');
+    } catch (loginError) {
+      sessionStorage.removeItem(adminPasswordStorageKey);
+      setError(loginError.message);
+      setLoginState('idle');
+    }
+  }
+
+  function handleSignOut() {
+    sessionStorage.removeItem(adminPasswordStorageKey);
+    setConfig(null);
+    setIsAuthenticated(false);
+    setPassword('');
+    setError('');
+  }
 
   function updatePage(field, value) {
     setConfig((current) => ({
@@ -133,7 +175,7 @@ export function AdminPage() {
     setSaveState('saving');
 
     try {
-      const savedConfig = await saveStatus(config);
+      const savedConfig = await saveStatus(config, password);
       setConfig(stripGeneratedFields(savedConfig));
       setSaveState('saved');
       window.setTimeout(() => setSaveState('idle'), 1800);
@@ -141,6 +183,44 @@ export function AdminPage() {
       setError(saveError.message);
       setSaveState('idle');
     }
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="page admin-page">
+        <nav className="top-nav">
+          <a className="brand-link" href="/">
+            <span className="brand-mark" aria-hidden="true" />
+            Xpedeon
+          </a>
+          <div>
+            <a href="/">Status</a>
+            <a href="/admin">Admin</a>
+          </div>
+        </nav>
+
+        <section className="login-card">
+          <div>
+            <p className="eyebrow">Status Admin</p>
+            <h1>Admin access</h1>
+            <p className="lede">Enter the admin password to edit the status page configuration.</p>
+          </div>
+
+          <form className="login-form" onSubmit={handleLogin}>
+            <TextInput
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(value) => setPassword(value)}
+            />
+            {error ? <div className="inline-error">{error}</div> : null}
+            <button className="primary-button" type="submit" disabled={loginState === 'checking' || !password}>
+              {loginState === 'checking' ? 'Checking...' : 'Sign in'}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
   }
 
   if (error && !config) {
@@ -158,8 +238,14 @@ export function AdminPage() {
   return (
     <main className="page admin-page">
       <nav className="top-nav">
-        <a href="/">Status</a>
-        <a href="/admin">Admin</a>
+        <a className="brand-link" href="/">
+          <span className="brand-mark" aria-hidden="true" />
+          Xpedeon
+        </a>
+        <div>
+          <a href="/">Status</a>
+          <a href="/admin">Admin</a>
+        </div>
       </nav>
 
       <header className="admin-header">
@@ -168,9 +254,14 @@ export function AdminPage() {
           <h1>Edit status page</h1>
           <p className="lede">Changes are saved to status.config.json through the local Node API.</p>
         </div>
-        <button className="primary-button" type="submit" form="status-admin-form" disabled={saveState === 'saving'}>
-          {saveState === 'saving' ? 'Saving...' : 'Save changes'}
-        </button>
+        <div className="admin-actions">
+          <button className="secondary-button compact-button" type="button" onClick={handleSignOut}>
+            Sign out
+          </button>
+          <button className="primary-button" type="submit" form="status-admin-form" disabled={saveState === 'saving'}>
+            {saveState === 'saving' ? 'Saving...' : 'Save changes'}
+          </button>
+        </div>
       </header>
 
       {error ? <div className="inline-error">{error}</div> : null}

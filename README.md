@@ -5,8 +5,8 @@ A basic manually configured status page built with React, Node.js, Express, and 
 ## Run locally
 
 ```bash
-~npm install
-npm run dev~
+npm install
+npm run dev
 ```
 
 Open the Vite app at `http://localhost:5173`. The API runs on `http://localhost:3001`.
@@ -15,6 +15,12 @@ Open the Vite app at `http://localhost:5173`. The API runs on `http://localhost:
 
 Open `http://localhost:5173/admin` to edit the status page in the browser.
 
+The default admin password is `admin`. Set `STATUS_ADMIN_PASSWORD` before starting the server to change it:
+
+```bash
+STATUS_ADMIN_PASSWORD="change-me" npm run dev
+```
+
 The admin page can update:
 
 - page title, description, and support email
@@ -22,7 +28,7 @@ The admin page can update:
 - active incidents
 - scheduled maintenance
 
-Saving from the admin page writes the changes back to `status.config.json` through `PUT /api/status`.
+Saving from the admin page writes the changes back to `status.config.json` through `PUT /api/status`, which requires the admin password.
 
 ## Manual configuration
 
