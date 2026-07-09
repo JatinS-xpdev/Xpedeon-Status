@@ -43,22 +43,19 @@ function normalizeStatusValue(value, fallbackStatus) {
   return fallbackStatus;
 }
 
-export function buildStatusSegments(history = [], segmentCount = 30, fallbackStatus = 'operational') {
-  const normalizedHistory = Array.isArray(history)
-    ? history.map((value) => normalizeStatusValue(value, fallbackStatus)).filter(Boolean)
-    : [];
+export function buildStatusSegments(history = {}, segmentCount = 30, fallbackStatus = 'operational') {
+  const days = Array.from({ length: segmentCount }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (segmentCount - 1 - i));
+    return date.toISOString().split('T')[0];
+  });
 
-  if (!normalizedHistory.length) {
-    return Array.from({ length: segmentCount }, () => fallbackStatus);
-  }
+  const isObject = history && typeof history === 'object' && !Array.isArray(history);
+  const historyMap = isObject ? history : {};
 
-  return Array.from({ length: segmentCount }, (_segment, index) => {
-    const historyIndex = Math.min(
-      normalizedHistory.length - 1,
-      Math.floor((index / segmentCount) * normalizedHistory.length)
-    );
-
-    return normalizedHistory[historyIndex];
+  return days.map((date) => {
+    const status = historyMap[date] ?? fallbackStatus;
+    return normalizeStatusValue(status, fallbackStatus);
   });
 }
 
@@ -85,7 +82,7 @@ export function createEmptyService() {
     name: '',
     description: '',
     status: 'operational',
-    history: []
+    history: {}
   };
 }
 

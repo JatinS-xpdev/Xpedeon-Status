@@ -10,7 +10,7 @@ function statusSummary(services) {
   );
 }
 
-function RaisedIncidentsBanner({ incidents }) {
+function RaisedIncidentsBanner({ incidents, services = [] }) {
   if (!incidents.length) {
     return null;
   }
@@ -23,22 +23,44 @@ function RaisedIncidentsBanner({ incidents }) {
   }, 'minor');
 
   const meta = RISK_LEVEL_META[worstRisk];
+  const mostRecent = incidents.reduce((latest, incident) => {
+    const latestTime = new Date(latest.updatedAt).getTime();
+    const incidentTime = new Date(incident.updatedAt).getTime();
+    return incidentTime > latestTime ? incident : latest;
+  });
 
   return (
     <div className={`incident-banner incident-banner-${meta.tone}`}>
-      <div className="incident-banner-content">
-        <div>
-          <h2 className="incident-banner-title">
-            <span className="status-dot" aria-hidden="true" />
-            {incidents.length} Active {incidents.length === 1 ? 'Issue' : 'Issues'}
-          </h2>
-          <p className="incident-banner-summary">
-            {incidents.map((incident) => incident.title).join(' • ')}
-          </p>
+      <div className="incident-banner-header">
+        <div className="incident-banner-status">
+          <span className="status-dot" aria-hidden="true" />
+          <div>
+            <h2 className="incident-banner-title">
+              {worstRisk === 'critical' ? 'Critical Issue' : worstRisk === 'major' ? 'Major Issue' : 'Active Issue'}
+            </h2>
+            <p className="incident-banner-time">Updated {formatDateTime(mostRecent.updatedAt)}</p>
+          </div>
         </div>
-        <a href="#active-incidents" className="incident-banner-link">
-          View details →
-        </a>
+        <a href="#active-incidents" className="incident-banner-link">View all →</a>
+      </div>
+
+      <div className="incident-banner-details">
+        {incidents.map((incident, index) => (
+          <div key={`${incident.title}-${index}`} className="incident-item">
+            <div className="incident-item-header">
+              <h3 className="incident-item-title">{incident.title}</h3>
+              <span className={`incident-badge incident-badge-${incident.riskLevel ?? 'minor'}`}>
+                {incident.status}
+              </span>
+            </div>
+            <p className="incident-item-message">{incident.message}</p>
+            {incident.impact && (
+              <p className="incident-item-impact">
+                <strong>Impact:</strong> {incident.impact}
+              </p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -165,7 +187,7 @@ export function PublicStatusPage({ statusData }) {
         </div>
       </nav>
 
-      {incidents.length > 0 && <RaisedIncidentsBanner incidents={incidents} />}
+      {incidents.length > 0 && <RaisedIncidentsBanner incidents={incidents} services={services} />}
 
       <header className="hero">
         <div>

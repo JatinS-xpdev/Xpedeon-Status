@@ -58,6 +58,70 @@ function TextArea({ label, value, onChange }) {
   );
 }
 
+function HistoryCalendar({ value, onChange }) {
+  const [expandedDate, setExpandedDate] = useState(null);
+  const history = value || {};
+  const days = 30;
+  const dates = Array.from({ length: days }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    return date.toISOString().split('T')[0];
+  }).reverse();
+
+  const handleStatusChange = (date, status) => {
+    const updated = { ...history, [date]: status };
+    onChange(updated);
+  };
+
+  return (
+    <Field label="Daily Status History (Last 30 days)">
+      <div className="history-calendar">
+        {dates.map((date) => {
+          const status = history[date] ?? 'operational';
+          const meta = STATUS_META[status] ?? STATUS_META.operational;
+          const dateObj = new Date(date);
+          const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const isExpanded = expandedDate === date;
+
+          return (
+            <div key={date} className={`history-day ${isExpanded ? 'expanded' : 'collapsed'}`}>
+              <button
+                type="button"
+                className={`history-day-button history-day-${meta.tone}`}
+                onClick={() => setExpandedDate(isExpanded ? null : date)}
+                title={date}
+              >
+                <span className="history-day-indicator" />
+                <span className="history-day-arrow">▼</span>
+              </button>
+              {isExpanded && (
+                <div className="history-day-expanded">
+                  <div className="history-day-date">{dateStr}</div>
+                  <select
+                    value={status}
+                    onChange={(event) => {
+                      handleStatusChange(date, event.target.value);
+                      setExpandedDate(null);
+                    }}
+                    className={`history-day-select history-day-${meta.tone}`}
+                    autoFocus
+                  >
+                    {SERVICE_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_META[s].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
 function HistoryInput({ label, value, onChange }) {
   const historyValue = Array.isArray(value) ? value.join(',') : '';
 
@@ -345,11 +409,12 @@ export function AdminPage() {
                   value={service.status}
                   onChange={(value) => updateListItem('services', index, 'status', value)}
                 />
-                <HistoryInput
-                  label="History"
-                  value={service.history ?? []}
-                  onChange={(value) => updateListItem('services', index, 'history', value)}
-                />
+                <div className="wide-field">
+                  <HistoryCalendar
+                    value={service.history ?? {}}
+                    onChange={(value) => updateListItem('services', index, 'history', value)}
+                  />
+                </div>
                 <div className="wide-field">
                   <TextArea
                     label="Description"
