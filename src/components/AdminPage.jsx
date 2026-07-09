@@ -1,157 +1,83 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchStatus, loginAdmin, saveStatus } from '../api.js';
 import {
   createEmptyIncident,
   createEmptyMaintenance,
   createEmptyService,
-  RISK_LEVELS,
+  fromDateTimeInputValue,
+  getRecentDateKeys,
+  normalizeStatusConfig,
   RISK_LEVEL_META,
+  RISK_LEVELS,
   SERVICE_STATUSES,
-  STATUS_META
+  STATUS_META,
+  toDateTimeInputValue,
+  validateStatusConfig
 } from '../status.js';
 import { Notice } from './Notice.jsx';
 
-const adminPasswordStorageKey = 'xpedeon-status-admin-password';
-
-function stripGeneratedFields(config) {
-  const { generatedAt, ...editableConfig } = config;
+function removeGeneratedFields(config) {
+  const { generatedAt: _generatedAt, ...editableConfig } = normalizeStatusConfig(config);
   return editableConfig;
 }
 
-function toDateTimeInput(value) {
-  if (!value) {
-    return '';
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
-
-function Field({ label, children }) {
+function Field({ label, hint, children }) {
   return (
     <label className="field">
       <span>{label}</span>
       {children}
+      {hint ? <small>{hint}</small> : null}
     </label>
   );
 }
 
-function TextInput({ label, value, onChange, type = 'text' }) {
+function TextInput({ label, value, onChange, hint, required = true, placeholder }) {
   return (
-    <Field label={label}>
-      <input type={type} value={value ?? ''} onChange={(event) => onChange(event.target.value)} />
-    </Field>
-  );
-}
-
-function TextArea({ label, value, onChange }) {
-  return (
-    <Field label={label}>
-      <textarea value={value ?? ''} onChange={(event) => onChange(event.target.value)} rows={3} />
-    </Field>
-  );
-}
-
-function HistoryCalendar({ value, onChange }) {
-  const [expandedDate, setExpandedDate] = useState(null);
-  const history = value || {};
-  const days = 30;
-  const dates = Array.from({ length: days }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    return date.toISOString().split('T')[0];
-  }).reverse();
-
-  const handleStatusChange = (date, status) => {
-    const updated = { ...history, [date]: status };
-    onChange(updated);
-  };
-
-  return (
-    <Field label="Daily Status History (Last 30 days)">
-      <div className="history-calendar">
-        {dates.map((date) => {
-          const status = history[date] ?? 'operational';
-          const meta = STATUS_META[status] ?? STATUS_META.operational;
-          const dateObj = new Date(date);
-          const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const isExpanded = expandedDate === date;
-
-          return (
-            <div key={date} className={`history-day ${isExpanded ? 'expanded' : 'collapsed'}`}>
-              <button
-                type="button"
-                className={`history-day-button history-day-${meta.tone}`}
-                onClick={() => setExpandedDate(isExpanded ? null : date)}
-                title={date}
-              >
-                <span className="history-day-indicator" />
-                <span className="history-day-arrow">▼</span>
-              </button>
-              {isExpanded && (
-                <div className="history-day-expanded">
-                  <div className="history-day-date">{dateStr}</div>
-                  <select
-                    value={status}
-                    onChange={(event) => {
-                      handleStatusChange(date, event.target.value);
-                      setExpandedDate(null);
-                    }}
-                    className={`history-day-select history-day-${meta.tone}`}
-                    autoFocus
-                  >
-                    {SERVICE_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_META[s].label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Field>
-  );
-}
-
-function HistoryInput({ label, value, onChange }) {
-  const historyValue = Array.isArray(value) ? value.join(',') : '';
-
-  return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <input
+        required={required}
         type="text"
-        value={historyValue}
-        onChange={(event) => {
-          const parsed = event.target.value
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
-
-          onChange(parsed);
-        }}
-        placeholder="operational,degraded,outage"
+        value={value ?? ''}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
       />
     </Field>
   );
 }
 
-function StatusSelect({ value, onChange }) {
+function TextArea({ label, value, onChange, hint, required = true, rows = 4, placeholder }) {
   return (
-    <Field label="Status">
+    <Field label={label} hint={hint}>
+      <textarea
+        required={required}
+        rows={rows}
+        value={value ?? ''}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </Field>
+  );
+}
+
+function DateTimeInput({ label, value, onChange, hint, required = true }) {
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        required={required}
+        type="datetime-local"
+        value={toDateTimeInputValue(value)}
+        onChange={(event) => onChange(fromDateTimeInputValue(event.target.value))}
+      />
+    </Field>
+  );
+}
+
+function StatusSelect({ label = 'Current status', value, onChange, hint }) {
+  return (
+    <Field label={label} hint={hint}>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         {SERVICE_STATUSES.map((status) => (
-          <option key={status} value={status}>
-            {STATUS_META[status].label}
-          </option>
+          <option key={status} value={status}>{STATUS_META[status].label}</option>
         ))}
       </select>
     </Field>
@@ -160,363 +86,356 @@ function StatusSelect({ value, onChange }) {
 
 function RiskLevelSelect({ value, onChange }) {
   return (
-    <Field label="Raised factor">
-      <select value={value ?? 'minor'} onChange={(event) => onChange(event.target.value)}>
-        {RISK_LEVELS.map((level) => (
-          <option key={level} value={level}>
-            {RISK_LEVEL_META[level].label}
-          </option>
+    <Field label="Risk level" hint="Controls how prominently the incident is shown on the public page.">
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {RISK_LEVELS.map((riskLevel) => (
+          <option key={riskLevel} value={riskLevel}>{RISK_LEVEL_META[riskLevel].label}</option>
         ))}
       </select>
     </Field>
   );
 }
 
-function EditorList({ title, count, onAdd, children }) {
+function HistoryCalendar({ history = {}, currentStatus, onChange }) {
+  const dates = useMemo(() => getRecentDateKeys(30), []);
+
+  function updateDate(date, status) {
+    onChange({ ...history, [date]: status });
+  }
+
+  function clearDate(date) {
+    const nextHistory = { ...history };
+    delete nextHistory[date];
+    onChange(nextHistory);
+  }
+
+  return (
+    <div className="history-editor" aria-label="Recent service history">
+      <div className="history-editor-toolbar">
+        <span>Last 30 days</span>
+        <small>Blank days inherit the current service status.</small>
+      </div>
+      <div className="history-day-grid">
+        {dates.map((date) => {
+          const explicitStatus = history?.[date];
+          const status = explicitStatus || currentStatus;
+          const meta = STATUS_META[status] ?? STATUS_META.operational;
+
+          return (
+            <div className="history-day" key={date}>
+              <button
+                type="button"
+                className={`history-day-button history-day-${meta.tone}${explicitStatus ? ' history-day-explicit' : ''}`}
+                title={`${date}: ${meta.label}${explicitStatus ? '' : ' (inherited)'}`}
+                onClick={() => {
+                  const currentIndex = SERVICE_STATUSES.indexOf(status);
+                  const nextStatus = SERVICE_STATUSES[(currentIndex + 1) % SERVICE_STATUSES.length];
+                  updateDate(date, nextStatus);
+                }}
+              >
+                <span>{date.slice(8)}</span>
+              </button>
+              {explicitStatus ? (
+                <button className="history-clear-button" type="button" onClick={() => clearDate(date)} aria-label={`Clear ${date}`}>
+                  ×
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="history-legend">
+        {SERVICE_STATUSES.map((status) => {
+          const meta = STATUS_META[status];
+          return (
+            <span key={status}>
+              <i className={`legend-${meta.tone}`} aria-hidden="true" />
+              {meta.label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function EditorSection({ title, description, actionLabel, onAdd, children }) {
   return (
     <section className="admin-section">
-      <div className="section-heading">
-        <h2>{title}</h2>
-        <span>{count}</span>
+      <div className="admin-section-heading">
+        <div>
+          <h2>{title}</h2>
+          {description ? <p>{description}</p> : null}
+        </div>
+        <button className="secondary-button" type="button" onClick={onAdd}>{actionLabel}</button>
       </div>
-      <div className="editor-list">{children}</div>
-      <button className="secondary-button" type="button" onClick={onAdd}>
-        Add {title.toLowerCase()}
-      </button>
+      <div className="editor-stack">{children}</div>
     </section>
   );
 }
 
+function EmptyEditor({ children }) {
+  return <p className="empty editor-empty">{children}</p>;
+}
+
 export function AdminPage() {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
   const [config, setConfig] = useState(null);
   const [error, setError] = useState('');
-  const [password, setPassword] = useState(() => sessionStorage.getItem(adminPasswordStorageKey) ?? '');
-  const [isAuthenticated, setIsAuthenticated] = useState(() =>
-    Boolean(sessionStorage.getItem(adminPasswordStorageKey))
-  );
-  const [saveState, setSaveState] = useState('idle');
-  const [loginState, setLoginState] = useState('idle');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      return;
+    if (!authenticated) {
+      return undefined;
     }
 
-    loginAdmin(password)
-      .then(fetchStatus)
-      .then((data) => setConfig(stripGeneratedFields(data)))
-      .catch((requestError) => {
-        sessionStorage.removeItem(adminPasswordStorageKey);
-        setIsAuthenticated(false);
-        setConfig(null);
-        setError(requestError.message);
-      });
-  }, [isAuthenticated, password]);
-
-  async function handleLogin(event) {
-    event.preventDefault();
+    const controller = new AbortController();
+    setLoading(true);
     setError('');
-    setLoginState('checking');
 
-    try {
-      await loginAdmin(password);
-      sessionStorage.setItem(adminPasswordStorageKey, password);
-      setIsAuthenticated(true);
-      setLoginState('idle');
-    } catch (loginError) {
-      sessionStorage.removeItem(adminPasswordStorageKey);
-      setError(loginError.message);
-      setLoginState('idle');
-    }
-  }
+    fetchStatus({ signal: controller.signal })
+      .then((data) => {
+        setConfig(removeGeneratedFields(data));
+      })
+      .catch((fetchError) => {
+        if (fetchError.name !== 'AbortError') {
+          setError(fetchError.message || 'Unable to load the status configuration.');
+        }
+      })
+      .finally(() => setLoading(false));
 
-  function handleSignOut() {
-    sessionStorage.removeItem(adminPasswordStorageKey);
-    setConfig(null);
-    setIsAuthenticated(false);
-    setPassword('');
-    setError('');
-  }
+    return () => controller.abort();
+  }, [authenticated]);
 
   function updatePage(field, value) {
     setConfig((current) => ({
       ...current,
-      page: {
-        ...current.page,
-        [field]: value
-      }
+      page: { ...current.page, [field]: value }
     }));
   }
 
   function updateListItem(listName, index, field, value) {
     setConfig((current) => ({
       ...current,
-      [listName]: (current[listName] ?? []).map((item, itemIndex) =>
+      [listName]: current[listName].map((item, itemIndex) => (
         itemIndex === index ? { ...item, [field]: value } : item
-      )
+      ))
     }));
   }
 
-  function addListItem(listName, item) {
+  function addListItem(listName, factory) {
     setConfig((current) => ({
       ...current,
-      [listName]: [...(current[listName] ?? []), item]
+      [listName]: [...current[listName], factory()]
     }));
   }
 
   function removeListItem(listName, index) {
     setConfig((current) => ({
       ...current,
-      [listName]: (current[listName] ?? []).filter((_item, itemIndex) => itemIndex !== index)
+      [listName]: current[listName].filter((_item, itemIndex) => itemIndex !== index)
     }));
   }
 
-  async function handleSubmit(event) {
+  async function handleLogin(event) {
     event.preventDefault();
+    setLoggingIn(true);
     setError('');
-    setSaveState('saving');
+    setMessage('');
 
     try {
-      const savedConfig = await saveStatus(config, password);
-      setConfig(stripGeneratedFields(savedConfig));
-      setSaveState('saved');
-      window.setTimeout(() => setSaveState('idle'), 1800);
-    } catch (saveError) {
-      setError(saveError.message);
-      setSaveState('idle');
+      await loginAdmin(password);
+      setAuthenticated(true);
+      setMessage('Signed in. You can now edit the status page.');
+    } catch (loginError) {
+      setAuthenticated(false);
+      setPassword('');
+      setError(loginError.message || 'Login failed.');
+    } finally {
+      setLoggingIn(false);
     }
   }
 
-  if (!isAuthenticated) {
+  async function handleSave(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const normalizedConfig = validateStatusConfig(config);
+      await saveStatus(normalizedConfig, password);
+      setConfig(normalizedConfig);
+      setMessage('Status page updated successfully.');
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to save changes.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSignOut() {
+    setAuthenticated(false);
+    setPassword('');
+    setConfig(null);
+    setError('');
+    setMessage('Signed out.');
+  }
+
+  if (!authenticated) {
     return (
-      <main className="page admin-page">
-        <nav className="top-nav">
-          <a className="brand-link" href="/">
-            <span className="brand-mark" aria-hidden="true" />
-            Xpedeon
-          </a>
-          <div>
-            <a href="/">Status</a>
-            <a href="/admin">Admin</a>
-          </div>
-        </nav>
-
+      <main className="page page-centered">
         <section className="login-card">
-          <div>
-            <p className="eyebrow">Status Admin</p>
-            <h1>Admin access</h1>
-            <p className="lede">Enter the admin password to edit the status page configuration.</p>
-          </div>
-
+          <p className="eyebrow">Status Administration</p>
+          <h1>Sign in to update Xpedeon Status</h1>
+          <p>Enter the administrator password configured on the server.</p>
           <form className="login-form" onSubmit={handleLogin}>
-            <TextInput
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(value) => setPassword(value)}
-            />
-            {error ? <div className="inline-error">{error}</div> : null}
-            <button className="primary-button" type="submit" disabled={loginState === 'checking' || !password}>
-              {loginState === 'checking' ? 'Checking...' : 'Sign in'}
+            <Field label="Admin password">
+              <input
+                autoFocus
+                required
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </Field>
+            {error ? <Notice type="error">{error}</Notice> : null}
+            {message ? <Notice type="success">{message}</Notice> : null}
+            <button className="primary-button" type="submit" disabled={loggingIn}>
+              {loggingIn ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
+          <a className="back-link" href="/">Return to public status page</a>
         </section>
       </main>
     );
   }
 
-  if (error && !config) {
-    return <Notice title="Admin unavailable" tone="error">{error}</Notice>;
-  }
-
-  if (!config) {
-    return <Notice title="Loading admin">Fetching editable status configuration.</Notice>;
-  }
-
-  const services = config.services ?? [];
-  const incidents = config.incidents ?? [];
-  const maintenance = config.maintenance ?? [];
-
   return (
     <main className="page admin-page">
-      <nav className="top-nav">
-        <a className="brand-link" href="/">
+      <nav className="top-nav" aria-label="Primary navigation">
+        <a className="brand-link" href="/" aria-label="Xpedeon status home">
           <span className="brand-mark" aria-hidden="true" />
-          Xpedeon
+          <span>Xpedeon</span>
         </a>
         <div>
           <a href="/">Status</a>
-          <a href="/admin">Admin</a>
+          <button className="nav-button" type="button" onClick={handleSignOut}>Sign out</button>
         </div>
       </nav>
 
       <header className="admin-header">
         <div>
-          <p className="eyebrow">Status Admin</p>
-          <h1>Edit status page</h1>
-          <p className="lede">Changes are saved to status.config.json through the local Node API.</p>
+          <p className="eyebrow">Administration</p>
+          <h1>Status page editor</h1>
+          <p>Update service health, active incidents and maintenance windows from one place.</p>
         </div>
         <div className="admin-actions">
-          <button className="secondary-button compact-button" type="button" onClick={handleSignOut}>
-            Sign out
-          </button>
-          <button className="primary-button" type="submit" form="status-admin-form" disabled={saveState === 'saving'}>
-            {saveState === 'saving' ? 'Saving...' : 'Save changes'}
+          <button className="secondary-button" type="button" onClick={handleSignOut}>Sign out</button>
+          <button className="primary-button" type="submit" form="status-editor" disabled={saving || loading || !config}>
+            {saving ? 'Saving...' : 'Save changes'}
           </button>
         </div>
       </header>
 
-      {error ? <div className="inline-error">{error}</div> : null}
-      {saveState === 'saved' ? <div className="inline-success">Configuration saved.</div> : null}
+      {error ? <Notice type="error">{error}</Notice> : null}
+      {message ? <Notice type="success">{message}</Notice> : null}
+      {loading ? <Notice>Loading the current status configuration...</Notice> : null}
 
-      <form id="status-admin-form" className="admin-form" onSubmit={handleSubmit}>
-        <section className="admin-section">
-          <div className="section-heading">
-            <h2>Page details</h2>
-          </div>
-          <div className="form-grid">
-            <TextInput label="Title" value={config.page.title} onChange={(value) => updatePage('title', value)} />
-            <TextInput
-              label="Support email"
-              type="email"
-              value={config.page.supportEmail}
-              onChange={(value) => updatePage('supportEmail', value)}
-            />
-            <div className="wide-field">
-              <TextArea
-                label="Description"
-                value={config.page.description}
-                onChange={(value) => updatePage('description', value)}
-              />
-            </div>
-          </div>
-        </section>
-
-        <EditorList
-          title="Services"
-          count={services.length}
-          onAdd={() => addListItem('services', createEmptyService())}
-        >
-          {services.map((service, index) => (
-            <div className="editor-row" key={`${service.name}-${index}`}>
-              <div className="form-grid">
-                <TextInput
-                  label="Name"
-                  value={service.name}
-                  onChange={(value) => updateListItem('services', index, 'name', value)}
-                />
-                <StatusSelect
-                  value={service.status}
-                  onChange={(value) => updateListItem('services', index, 'status', value)}
-                />
-                <div className="wide-field">
-                  <HistoryCalendar
-                    value={service.history ?? {}}
-                    onChange={(value) => updateListItem('services', index, 'history', value)}
-                  />
-                </div>
-                <div className="wide-field">
-                  <TextArea
-                    label="Description"
-                    value={service.description}
-                    onChange={(value) => updateListItem('services', index, 'description', value)}
-                  />
-                </div>
+      {config ? (
+        <form id="status-editor" className="admin-form" onSubmit={handleSave}>
+          <section className="admin-section">
+            <div className="admin-section-heading">
+              <div>
+                <h2>Page details</h2>
+                <p>These values appear at the top and bottom of the public page.</p>
               </div>
-              <button className="danger-button" type="button" onClick={() => removeListItem('services', index)}>
-                Remove
-              </button>
             </div>
-          ))}
-        </EditorList>
+            <div className="form-grid">
+              <TextInput label="Page title" value={config.page.title} onChange={(value) => updatePage('title', value)} />
+              <TextInput label="Support email" value={config.page.supportEmail} onChange={(value) => updatePage('supportEmail', value)} />
+              <TextArea label="Page description" value={config.page.description} onChange={(value) => updatePage('description', value)} rows={3} />
+            </div>
+          </section>
 
-        <EditorList
-          title="Incidents"
-          count={incidents.length}
-          onAdd={() => addListItem('incidents', createEmptyIncident())}
-        >
-          {incidents.map((incident, index) => (
-            <div className="editor-row" key={`${incident.title}-${index}`}>
-              <div className="form-grid">
-                <TextInput
-                  label="Title"
-                  value={incident.title}
-                  onChange={(value) => updateListItem('incidents', index, 'title', value)}
-                />
-                <TextInput
-                  label="Status"
-                  value={incident.status}
-                  onChange={(value) => updateListItem('incidents', index, 'status', value)}
-                />
-                <TextInput
-                  label="Impact"
-                  value={incident.impact}
-                  onChange={(value) => updateListItem('incidents', index, 'impact', value)}
-                />
-                <RiskLevelSelect
-                  value={incident.riskLevel ?? 'minor'}
-                  onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)}
-                />
-                <TextInput
-                  label="Updated"
-                  type="datetime-local"
-                  value={toDateTimeInput(incident.updatedAt)}
-                  onChange={(value) => updateListItem('incidents', index, 'updatedAt', value)}
-                />
-                <div className="wide-field">
-                  <TextArea
-                    label="Message"
-                    value={incident.message}
-                    onChange={(value) => updateListItem('incidents', index, 'message', value)}
-                  />
+          <EditorSection
+            title="Services"
+            description="Set the current state for each monitored component and optionally override individual days in the 30-day history."
+            actionLabel="Add service"
+            onAdd={() => addListItem('services', createEmptyService)}
+          >
+            {config.services.length ? config.services.map((service, index) => (
+              <article className="editor-card" key={`service-${index}`}>
+                <div className="editor-card-heading">
+                  <h3>{service.name || `Service ${index + 1}`}</h3>
+                  <button className="danger-button" type="button" onClick={() => removeListItem('services', index)}>Remove</button>
                 </div>
-              </div>
-              <button className="danger-button" type="button" onClick={() => removeListItem('incidents', index)}>
-                Remove
-              </button>
-            </div>
-          ))}
-        </EditorList>
+                <div className="form-grid">
+                  <TextInput label="Service name" value={service.name} onChange={(value) => updateListItem('services', index, 'name', value)} />
+                  <StatusSelect value={service.status} onChange={(value) => updateListItem('services', index, 'status', value)} />
+                  <TextArea label="Description" value={service.description} onChange={(value) => updateListItem('services', index, 'description', value)} rows={3} />
+                </div>
+                <HistoryCalendar
+                  history={service.history}
+                  currentStatus={service.status}
+                  onChange={(value) => updateListItem('services', index, 'history', value)}
+                />
+              </article>
+            )) : <EmptyEditor>No services configured yet.</EmptyEditor>}
+          </EditorSection>
 
-        <EditorList
-          title="Maintenance"
-          count={maintenance.length}
-          onAdd={() => addListItem('maintenance', createEmptyMaintenance())}
-        >
-          {maintenance.map((item, index) => (
-            <div className="editor-row" key={`${item.title}-${index}`}>
-              <div className="form-grid">
-                <TextInput
-                  label="Title"
-                  value={item.title}
-                  onChange={(value) => updateListItem('maintenance', index, 'title', value)}
-                />
-                <TextInput
-                  label="Starts"
-                  type="datetime-local"
-                  value={toDateTimeInput(item.scheduledFor)}
-                  onChange={(value) => updateListItem('maintenance', index, 'scheduledFor', value)}
-                />
-                <TextInput
-                  label="Duration"
-                  value={item.duration}
-                  onChange={(value) => updateListItem('maintenance', index, 'duration', value)}
-                />
-                <div className="wide-field">
-                  <TextArea
-                    label="Message"
-                    value={item.message}
-                    onChange={(value) => updateListItem('maintenance', index, 'message', value)}
-                  />
+          <EditorSection
+            title="Active incidents"
+            description="Only add incidents that should be visible to customers now. Remove resolved incidents when they no longer need to appear."
+            actionLabel="Add incident"
+            onAdd={() => addListItem('incidents', createEmptyIncident)}
+          >
+            {config.incidents.length ? config.incidents.map((incident, index) => (
+              <article className="editor-card" key={`incident-${index}`}>
+                <div className="editor-card-heading">
+                  <h3>{incident.title || `Incident ${index + 1}`}</h3>
+                  <button className="danger-button" type="button" onClick={() => removeListItem('incidents', index)}>Remove</button>
                 </div>
-              </div>
-              <button className="danger-button" type="button" onClick={() => removeListItem('maintenance', index)}>
-                Remove
-              </button>
-            </div>
-          ))}
-        </EditorList>
-      </form>
+                <div className="form-grid">
+                  <TextInput label="Incident title" value={incident.title} onChange={(value) => updateListItem('incidents', index, 'title', value)} />
+                  <TextInput label="Status" value={incident.status} onChange={(value) => updateListItem('incidents', index, 'status', value)} placeholder="Investigating / Monitoring / Identified" />
+                  <RiskLevelSelect value={incident.riskLevel} onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)} />
+                  <DateTimeInput label="Last updated" value={incident.updatedAt} onChange={(value) => updateListItem('incidents', index, 'updatedAt', value)} />
+                  <TextInput label="Impact" value={incident.impact} required={false} onChange={(value) => updateListItem('incidents', index, 'impact', value)} placeholder="Brief affected area" />
+                  <TextArea label="Message" value={incident.message} onChange={(value) => updateListItem('incidents', index, 'message', value)} />
+                </div>
+              </article>
+            )) : <EmptyEditor>No active incidents.</EmptyEditor>}
+          </EditorSection>
+
+          <EditorSection
+            title="Scheduled maintenance"
+            description="Add planned maintenance windows that customers should see in advance."
+            actionLabel="Add maintenance"
+            onAdd={() => addListItem('maintenance', createEmptyMaintenance)}
+          >
+            {config.maintenance.length ? config.maintenance.map((item, index) => (
+              <article className="editor-card" key={`maintenance-${index}`}>
+                <div className="editor-card-heading">
+                  <h3>{item.title || `Maintenance ${index + 1}`}</h3>
+                  <button className="danger-button" type="button" onClick={() => removeListItem('maintenance', index)}>Remove</button>
+                </div>
+                <div className="form-grid">
+                  <TextInput label="Maintenance title" value={item.title} onChange={(value) => updateListItem('maintenance', index, 'title', value)} />
+                  <DateTimeInput label="Scheduled start" value={item.scheduledFor} onChange={(value) => updateListItem('maintenance', index, 'scheduledFor', value)} />
+                  <TextInput label="Duration" value={item.duration} onChange={(value) => updateListItem('maintenance', index, 'duration', value)} />
+                  <TextArea label="Message" value={item.message} onChange={(value) => updateListItem('maintenance', index, 'message', value)} />
+                </div>
+              </article>
+            )) : <EmptyEditor>No maintenance scheduled.</EmptyEditor>}
+          </EditorSection>
+        </form>
+      ) : null}
     </main>
   );
 }

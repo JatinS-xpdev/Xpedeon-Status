@@ -1,153 +1,173 @@
-import express from 'express';
 import crypto from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import express from 'express';
+import { normalizeStatusConfig, validateStatusConfig } from '../src/status.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
-const configPath = path.join(rootDir, 'status.config.json');
 const distDir = path.join(rootDir, 'dist');
-const port = process.env.PORT || 3001;
-const serviceStatuses = new Set(['operational', 'degraded', 'maintenance', 'outage']);
-const adminPassword = process.env.STATUS_ADMIN_PASSWORD || 'admin';
+const configPath = process.env.STATUS_CONFIG_PATH
+  ? path.resolve(process.env.STATUS_CONFIG_PATH)
+  : path.join(rootDir, 'status.config.json');
+const port = Number.parseInt(process.env.PORT || '3001', 10);
+const configuredAdminPassword = process.env.STATUS_ADMIN_PASSWORD || 'admin';
+const isProduction = process.env.NODE_ENV === 'production';
 
-const app = express();
+function timingSafeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
 
-app.use(express.json({ limit: '100kb' }));
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
 
-async function readStatusConfig() {
-  const file = await readFile(configPath, 'utf8');
-  const config = JSON.parse(file);
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
 
+function getClientKey(request) {
+  return request.ip || request.socket?.remoteAddress || 'unknown';
+}
+
+function createLoginRateLimiter({ windowMs = 5 * 60 * 1000, maxAttempts = 10 } = {}) {
+  const attempts = new Map();
+
+  return function loginRateLimiter(request, response, next) {
+    const key = getClientKey(request);
+    const now = Date.now();
+    const record = attempts.get(key);
+
+    if (!record || record.resetAt <= now) {
+      attempts.set(key, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    record.count += 1;
+    if (record.count > maxAttempts) {
+      response.status(429).json({ error: 'Too many login attempts. Please try again later.' });
+      return;
+    }
+
+    next();
+  };
+}
+
+function getErrorPayload(message, error) {
+  const payload = { error: message };
+  if (!isProduction && error?.message) {
+    payload.detail = error.message;
+  }
+  return payload;
+}
+
+async function readStatusConfig(configFile) {
+  const rawConfig = await readFile(configFile, 'utf8');
+  const parsedConfig = JSON.parse(rawConfig);
   return {
-    ...config,
+    ...normalizeStatusConfig(parsedConfig),
     generatedAt: new Date().toISOString()
   };
 }
 
-function assertString(value, fieldName) {
-  if (typeof value !== 'string') {
-    throw new Error(`${fieldName} must be a string`);
-  }
+async function writeStatusConfig(configFile, config) {
+  const normalizedConfig = validateStatusConfig(config);
+  const directory = path.dirname(configFile);
+  const tempFile = path.join(directory, `.status.config.${process.pid}.${Date.now()}.tmp`);
+
+  await mkdir(directory, { recursive: true });
+  await writeFile(tempFile, `${JSON.stringify(normalizedConfig, null, 2)}\n`, 'utf8');
+  await rename(tempFile, configFile);
+
+  return {
+    ...normalizedConfig,
+    generatedAt: new Date().toISOString()
+  };
 }
 
-function passwordsMatch(value) {
-  if (typeof value !== 'string') {
-    return false;
-  }
+function requireAdminPassword(adminPassword) {
+  return function adminPasswordMiddleware(request, response, next) {
+    const submittedPassword = request.body?.password;
 
-  const expected = Buffer.from(adminPassword);
-  const actual = Buffer.from(value);
-
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
-}
-
-function requireAdminPassword(request, response, next) {
-  if (!passwordsMatch(request.get('x-admin-password'))) {
-    response.status(401).json({
-      error: 'Invalid admin password'
-    });
-    return;
-  }
-
-  next();
-}
-
-function validateStatusConfig(config) {
-  if (!config || typeof config !== 'object') {
-    throw new Error('Configuration must be an object');
-  }
-
-  if (!config.page || typeof config.page !== 'object') {
-    throw new Error('Page details are required');
-  }
-
-  assertString(config.page.title, 'Page title');
-  assertString(config.page.description, 'Page description');
-  assertString(config.page.supportEmail, 'Support email');
-
-  for (const listName of ['services', 'incidents', 'maintenance']) {
-    if (!Array.isArray(config[listName])) {
-      throw new Error(`${listName} must be an array`);
+    if (!adminPassword || !submittedPassword || !timingSafeEqual(submittedPassword, adminPassword)) {
+      response.status(401).json({ error: 'Invalid administrator password.' });
+      return;
     }
-  }
 
-  for (const service of config.services) {
-    assertString(service.name, 'Service name');
-    assertString(service.description, 'Service description');
-    assertString(service.status, 'Service status');
-
-    if (!serviceStatuses.has(service.status)) {
-      throw new Error(`Unsupported service status: ${service.status}`);
-    }
-  }
-
-  for (const incident of config.incidents) {
-    assertString(incident.title, 'Incident title');
-    assertString(incident.status, 'Incident status');
-    assertString(incident.impact, 'Incident impact');
-    assertString(incident.riskLevel, 'Incident risk level');
-    assertString(incident.updatedAt, 'Incident updated time');
-    assertString(incident.message, 'Incident message');
-  }
-
-  for (const item of config.maintenance) {
-    assertString(item.title, 'Maintenance title');
-    assertString(item.scheduledFor, 'Maintenance start time');
-    assertString(item.duration, 'Maintenance duration');
-    assertString(item.message, 'Maintenance message');
-  }
+    next();
+  };
 }
 
-async function writeStatusConfig(config) {
-  validateStatusConfig(config);
-  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  return readStatusConfig();
-}
+export function createApp({
+  configFile = configPath,
+  staticDirectory = distDir,
+  adminPassword = configuredAdminPassword
+} = {}) {
+  const app = express();
+  const loginRateLimiter = createLoginRateLimiter();
+  const verifyAdminPassword = requireAdminPassword(adminPassword);
 
-app.get('/api/status', async (_request, response) => {
-  try {
-    response.json(await readStatusConfig());
-  } catch (error) {
-    response.status(500).json({
-      error: 'Unable to read status configuration',
-      detail: error.message
-    });
-  }
-});
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '128kb' }));
 
-app.post('/api/admin/login', (request, response) => {
-  if (!passwordsMatch(request.body?.password)) {
-    response.status(401).json({
-      error: 'Invalid admin password'
-    });
-    return;
-  }
-
-  response.json({
-    ok: true
+  app.get('/api/health', (_request, response) => {
+    response.json({ ok: true });
   });
-});
 
-app.put('/api/status', requireAdminPassword, async (request, response) => {
-  try {
-    response.json(await writeStatusConfig(request.body));
-  } catch (error) {
-    response.status(400).json({
-      error: error.message
+  app.get('/api/status', async (_request, response) => {
+    try {
+      response.json(await readStatusConfig(configFile));
+    } catch (error) {
+      response.status(500).json(getErrorPayload('Unable to read status configuration.', error));
+    }
+  });
+
+  app.post('/api/admin/login', loginRateLimiter, (request, response) => {
+    if (!adminPassword || !request.body?.password || !timingSafeEqual(request.body.password, adminPassword)) {
+      response.status(401).json({ error: 'Invalid administrator password.' });
+      return;
+    }
+
+    response.json({ ok: true });
+  });
+
+  app.put('/api/status', verifyAdminPassword, async (request, response) => {
+    try {
+      const nextConfig = await writeStatusConfig(configFile, request.body?.config);
+      response.json(nextConfig);
+    } catch (error) {
+      response.status(400).json(getErrorPayload('Unable to save status configuration.', error));
+    }
+  });
+
+  app.use('/api', (_request, response) => {
+    response.status(404).json({ error: 'API route not found.' });
+  });
+
+  const indexFile = path.join(staticDirectory, 'index.html');
+  if (existsSync(indexFile)) {
+    app.use(express.static(staticDirectory, {
+      extensions: ['html'],
+      maxAge: isProduction ? '1h' : 0
+    }));
+    app.get('*', (_request, response) => {
+      response.sendFile(indexFile);
     });
   }
-});
 
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(distDir));
-  app.get('*', (_request, response) => {
-    response.sendFile(path.join(distDir, 'index.html'));
+  return app;
+}
+
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+if (isDirectRun) {
+  if (!process.env.STATUS_ADMIN_PASSWORD) {
+    console.warn('STATUS_ADMIN_PASSWORD is not set. The default admin password is being used.');
+  }
+
+  createApp().listen(port, () => {
+    console.log(`Xpedeon Status API listening on http://localhost:${port}`);
   });
 }
-
-app.listen(port, () => {
-  console.log(`Status API running at http://localhost:${port}`);
-});

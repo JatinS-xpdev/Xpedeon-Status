@@ -1,89 +1,112 @@
-import { buildStatusSegments, formatDateTime, getWorstServiceStatus, RISK_LEVEL_META, STATUS_META } from '../status.js';
+import {
+  buildStatusTimeline,
+  formatDateTime,
+  getWorstServiceStatus,
+  RISK_LEVEL_META,
+  SERVICE_STATUSES,
+  STATUS_META,
+  summarizeServices
+} from '../status.js';
 
-function statusSummary(services) {
-  return services.reduce(
-    (summary, service) => ({
-      ...summary,
-      [service.status]: (summary[service.status] ?? 0) + 1
-    }),
-    {}
+function safeMailto(email) {
+  return typeof email === 'string' && email.includes('@') ? `mailto:${email}` : undefined;
+}
+
+function Nav({ supportEmail }) {
+  const supportHref = safeMailto(supportEmail);
+
+  return (
+    <nav className="top-nav" aria-label="Primary navigation">
+      <a className="brand-link" href="/" aria-label="Xpedeon status home">
+        <span className="brand-mark" aria-hidden="true" />
+        <span>Xpedeon</span>
+      </a>
+      <div>
+        <a href="/">Status</a>
+        <a href="/admin">Admin</a>
+        {supportHref ? <a href={supportHref}>Support</a> : null}
+      </div>
+    </nav>
   );
 }
 
-function RaisedIncidentsBanner({ incidents, services = [] }) {
+function IncidentBanner({ incidents }) {
   if (!incidents.length) {
     return null;
   }
 
   const worstRisk = incidents.reduce((worst, incident) => {
-    const currentLevel = incident.riskLevel ?? 'minor';
-    const riskRank = { minor: 1, major: 2, critical: 3 }[currentLevel] ?? 1;
-    const worstRank = { minor: 1, major: 2, critical: 3 }[worst] ?? 1;
-    return riskRank > worstRank ? currentLevel : worst;
-  }, 'minor');
+    const current = RISK_LEVEL_META[incident.riskLevel] ?? RISK_LEVEL_META.minor;
+    return current.rank > worst.rank ? current : worst;
+  }, RISK_LEVEL_META.minor);
 
-  const meta = RISK_LEVEL_META[worstRisk];
   const mostRecent = incidents.reduce((latest, incident) => {
     const latestTime = new Date(latest.updatedAt).getTime();
     const incidentTime = new Date(incident.updatedAt).getTime();
     return incidentTime > latestTime ? incident : latest;
-  });
+  }, incidents[0]);
+
+  const heading = worstRisk.rank >= 3 ? 'Critical issue active' : worstRisk.rank === 2 ? 'Major issue active' : 'Active issue';
 
   return (
-    <div className={`incident-banner incident-banner-${meta.tone}`}>
+    <section className={`incident-banner incident-banner-${worstRisk.tone}`} aria-label="Active incident alert">
       <div className="incident-banner-header">
         <div className="incident-banner-status">
           <span className="status-dot" aria-hidden="true" />
           <div>
-            <h2 className="incident-banner-title">
-              {worstRisk === 'critical' ? 'Critical Issue' : worstRisk === 'major' ? 'Major Issue' : 'Active Issue'}
-            </h2>
+            <h2 className="incident-banner-title">{heading}</h2>
             <p className="incident-banner-time">Updated {formatDateTime(mostRecent.updatedAt)}</p>
           </div>
         </div>
-        <a href="#active-incidents" className="incident-banner-link">View all →</a>
+        <a className="incident-banner-link" href="#active-incidents">View details</a>
       </div>
-
       <div className="incident-banner-details">
-        {incidents.map((incident, index) => (
-          <div key={`${incident.title}-${index}`} className="incident-item">
-            <div className="incident-item-header">
-              <h3 className="incident-item-title">{incident.title}</h3>
-              <span className={`incident-badge incident-badge-${incident.riskLevel ?? 'minor'}`}>
-                {incident.status}
-              </span>
-            </div>
-            <p className="incident-item-message">{incident.message}</p>
-            {incident.impact && (
-              <p className="incident-item-impact">
-                <strong>Impact:</strong> {incident.impact}
-              </p>
-            )}
-          </div>
-        ))}
+        {incidents.map((incident, index) => {
+          const riskMeta = RISK_LEVEL_META[incident.riskLevel] ?? RISK_LEVEL_META.minor;
+          return (
+            <article className="incident-item" key={`${incident.title}-${index}`}>
+              <div className="incident-item-header">
+                <h3 className="incident-item-title">{incident.title}</h3>
+                <span className={`incident-badge incident-badge-${riskMeta.tone}`}>{riskMeta.label}</span>
+              </div>
+              <p className="incident-item-message">{incident.message}</p>
+              {incident.impact ? <p className="incident-item-impact"><strong>Impact:</strong> {incident.impact}</p> : null}
+            </article>
+          );
+        })}
       </div>
-    </div>
+    </section>
+  );
+}
+
+function StatusPill({ status }) {
+  const meta = STATUS_META[status] ?? STATUS_META.outage;
+  return (
+    <span className={`pill pill-${meta.tone}`}>
+      <span className="status-dot" aria-hidden="true" />
+      {meta.label}
+    </span>
   );
 }
 
 function ServiceRow({ service }) {
   const meta = STATUS_META[service.status] ?? STATUS_META.outage;
-  const segments = buildStatusSegments(service.history, 30, service.status);
+  const timeline = buildStatusTimeline(service.history, 30, service.status);
 
   return (
     <article className="service-row">
       <div className="service-copy">
-        <h2>{service.name}</h2>
+        <h3>{service.name}</h3>
         <p>{service.description}</p>
       </div>
       <div className="uptime-track" aria-label={`Recent uptime for ${service.name}`}>
-        {segments.map((segmentStatus, segmentIndex) => {
-          const segmentMeta = STATUS_META[segmentStatus] ?? STATUS_META.operational;
-
-          return (
-            <span className={`uptime-segment uptime-${segmentMeta.tone}`} key={`${service.name}-${segmentIndex}`} />
-          );
-        })}
+        {timeline.map((entry) => (
+          <span
+            className={`uptime-segment uptime-${entry.tone}`}
+            key={entry.date}
+            title={`${entry.date}: ${entry.label}`}
+          />
+        ))}
       </div>
       <span className={`pill pill-${meta.tone}`}>
         <span className="status-dot" aria-hidden="true" />
@@ -93,17 +116,68 @@ function ServiceRow({ service }) {
   );
 }
 
+function MetricStrip({ services, summary }) {
+  const total = services.length;
+  return (
+    <section className="health-strip" aria-label="Service status summary">
+      <div>
+        <span className="metric-value">{total}</span>
+        <span className="metric-label">Monitored services</span>
+      </div>
+      <div>
+        <span className="metric-value">{summary.operational ?? 0}</span>
+        <span className="metric-label">Operational</span>
+      </div>
+      <div>
+        <span className="metric-value">{(summary.degraded ?? 0) + (summary.maintenance ?? 0)}</span>
+        <span className="metric-label">Warnings</span>
+      </div>
+      <div>
+        <span className="metric-value">{summary.outage ?? 0}</span>
+        <span className="metric-label">Outages</span>
+      </div>
+    </section>
+  );
+}
+
+function ServiceBoard({ services }) {
+  return (
+    <section className="status-board" aria-labelledby="service-board-title">
+      <div className="board-heading">
+        <div>
+          <h2 id="service-board-title">Services</h2>
+          <p>Last 30 days are shown from left to right. Hover over a bar for the date and state.</p>
+        </div>
+        <div className="legend" aria-label="Legend">
+          {SERVICE_STATUSES.map((status) => {
+            const meta = STATUS_META[status];
+            return (
+              <span key={status}>
+                <i className={`legend-${meta.tone}`} aria-hidden="true" />
+                {meta.label}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <div className="service-list">
+        {services.length ? services.map((service) => <ServiceRow service={service} key={service.name} />) : <p className="empty board-empty">No services configured.</p>}
+      </div>
+    </section>
+  );
+}
+
 function IncidentList({ incidents }) {
   return (
-    <div className="panel">
+    <section className="panel" id="active-incidents" aria-labelledby="active-incidents-title">
       <div className="section-heading">
-        <h2>Active Incidents</h2>
+        <h2 id="active-incidents-title">Active Incidents</h2>
         <span>{incidents.length}</span>
       </div>
       {incidents.length ? (
         <div className="stack">
-          {incidents.map((incident) => (
-            <article className="timeline-item" key={`${incident.title}-${incident.updatedAt}`}>
+          {incidents.map((incident, index) => (
+            <article className="timeline-item" key={`${incident.title}-${incident.updatedAt}-${index}`}>
               <div>
                 <h3>{incident.title}</h3>
                 <p>{incident.message}</p>
@@ -115,7 +189,7 @@ function IncidentList({ incidents }) {
                 </div>
                 <div>
                   <dt>Impact</dt>
-                  <dd>{incident.impact}</dd>
+                  <dd>{incident.impact || 'Not specified'}</dd>
                 </div>
                 <div>
                   <dt>Updated</dt>
@@ -128,21 +202,21 @@ function IncidentList({ incidents }) {
       ) : (
         <p className="empty">No active incidents.</p>
       )}
-    </div>
+    </section>
   );
 }
 
 function MaintenanceList({ maintenance }) {
   return (
-    <div className="panel">
+    <section className="panel" aria-labelledby="scheduled-maintenance-title">
       <div className="section-heading">
-        <h2>Scheduled Maintenance</h2>
+        <h2 id="scheduled-maintenance-title">Scheduled Maintenance</h2>
         <span>{maintenance.length}</span>
       </div>
       {maintenance.length ? (
         <div className="stack">
-          {maintenance.map((item) => (
-            <article className="timeline-item" key={`${item.title}-${item.scheduledFor}`}>
+          {maintenance.map((item, index) => (
+            <article className="timeline-item" key={`${item.title}-${item.scheduledFor}-${index}`}>
               <div>
                 <h3>{item.title}</h3>
                 <p>{item.message}</p>
@@ -163,99 +237,46 @@ function MaintenanceList({ maintenance }) {
       ) : (
         <p className="empty">No maintenance scheduled.</p>
       )}
-    </div>
+    </section>
   );
 }
 
 export function PublicStatusPage({ statusData }) {
-  const { page, services = [], incidents = [], maintenance = [], generatedAt } = statusData;
-  const overallStatus = services.length
-    ? getWorstServiceStatus(services)
-    : STATUS_META.maintenance;
-  const summary = statusSummary(services);
+  const { page = {}, services = [], incidents = [], maintenance = [], generatedAt } = statusData;
+  const overallStatus = services.length ? getWorstServiceStatus(services) : STATUS_META.maintenance;
+  const summary = summarizeServices(services);
 
   return (
     <main className="page">
-      <nav className="top-nav">
-        <a className="brand-link" href="/">
-          <span className="brand-mark" aria-hidden="true" />
-          Xpedeon
-        </a>
-        <div>
-          <a href="/">Status</a>
-          <a href="/admin">Admin</a>
-        </div>
-      </nav>
-
-      {incidents.length > 0 && <RaisedIncidentsBanner incidents={incidents} services={services} />}
+      <Nav supportEmail={page.supportEmail} />
+      <IncidentBanner incidents={incidents} />
 
       <header className="hero">
         <div>
           <p className="eyebrow">Construction ERP Service Health</p>
-          <h1>{page.title}</h1>
-          <p className="lede">{page.description}</p>
+          <h1>{page.title || 'Xpedeon Status'}</h1>
+          <p className="lede">{page.description || 'Live service availability for Xpedeon products and supporting systems.'}</p>
         </div>
-        <div className={`overall overall-${overallStatus.tone}`}>
-          <div className="overall-icon">
-            <span className="status-dot" aria-hidden="true" />
-          </div>
+        <aside className={`overall overall-${overallStatus.tone}`} aria-label="Overall status">
+          <span className="overall-icon" aria-hidden="true"><span className="status-dot" /></span>
           <div>
             <span className="overall-label">{overallStatus.label}</span>
-            <span className="overall-time">Updated {formatDateTime(generatedAt)}</span>
+            <span className="overall-time">Last checked {formatDateTime(generatedAt)}</span>
           </div>
-        </div>
+        </aside>
       </header>
 
-      <section className="health-strip" aria-label="Status summary">
-        <div>
-          <span className="metric-value">{services.length}</span>
-          <span className="metric-label">monitored services</span>
-        </div>
-        <div>
-          <span className="metric-value">{summary.operational ?? 0}</span>
-          <span className="metric-label">operational</span>
-        </div>
-        <div>
-          <span className="metric-value">{incidents.length}</span>
-          <span className="metric-label">active incidents</span>
-        </div>
-        <div>
-          <span className="metric-value">{maintenance.length}</span>
-          <span className="metric-label">maintenance windows</span>
-        </div>
-      </section>
+      <MetricStrip services={services} summary={summary} />
+      <ServiceBoard services={services} />
 
-      <section className="status-board" aria-label="Service status summary">
-        <div className="board-heading">
-          <div>
-            <h2>Component Status</h2>
-            <p>Current state and recent availability across core Xpedeon services.</p>
-          </div>
-          <div className="legend">
-            <span><i className="legend-good" />Operational</span>
-            <span><i className="legend-warn" />Degraded</span>
-            <span><i className="legend-info" />Maintenance</span>
-            <span><i className="legend-bad" />Outage</span>
-          </div>
-        </div>
-
-        <div className="service-list">
-          {services.map((service) => (
-            <ServiceRow key={service.name} service={service} />
-          ))}
-        </div>
-      </section>
-
-      <section className="content-grid">
-        <div id="active-incidents">
-          <IncidentList incidents={incidents} />
-        </div>
+      <div className="content-grid">
+        <IncidentList incidents={incidents} />
         <MaintenanceList maintenance={maintenance} />
-      </section>
+      </div>
 
       <footer className="footer">
         <span>Need help?</span>
-        <a href={`mailto:${page.supportEmail}`}>{page.supportEmail}</a>
+        {safeMailto(page.supportEmail) ? <a href={safeMailto(page.supportEmail)}>{page.supportEmail}</a> : <span>{page.supportEmail || 'Contact support'}</span>}
       </footer>
     </main>
   );

@@ -1,36 +1,50 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+
 import { fetchStatus } from './api.js';
 import { AdminPage } from './components/AdminPage.jsx';
 import { Notice } from './components/Notice.jsx';
 import { PublicStatusPage } from './components/PublicStatusPage.jsx';
 import './styles.css';
 
+function isAdminRoute() {
+  return window.location.pathname.replace(/\/+$/, '') === '/admin';
+}
+
 function App() {
   const [statusData, setStatusData] = useState(null);
   const [error, setError] = useState('');
-  const isAdmin = window.location.pathname === '/admin';
+  const adminRoute = isAdminRoute();
 
   useEffect(() => {
-    if (isAdmin) {
-      return;
+    if (adminRoute) {
+      return undefined;
     }
 
-    fetchStatus()
-      .then(setStatusData)
-      .catch((requestError) => setError(requestError.message));
-  }, [isAdmin]);
+    const controller = new AbortController();
+    setError('');
 
-  if (isAdmin) {
+    fetchStatus({ signal: controller.signal })
+      .then(setStatusData)
+      .catch((requestError) => {
+        if (requestError.name !== 'AbortError') {
+          setError(requestError.message);
+        }
+      });
+
+    return () => controller.abort();
+  }, [adminRoute]);
+
+  if (adminRoute) {
     return <AdminPage />;
   }
 
   if (error) {
-    return <Notice title="Status unavailable" tone="error">{error}</Notice>;
+    return <Notice fullPage title="Status unavailable" tone="error">{error}</Notice>;
   }
 
   if (!statusData) {
-    return <Notice title="Loading status">Fetching the latest configured service state.</Notice>;
+    return <Notice fullPage title="Loading status">Fetching the latest configured service state.</Notice>;
   }
 
   return <PublicStatusPage statusData={statusData} />;

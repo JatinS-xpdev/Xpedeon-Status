@@ -1,13 +1,87 @@
 {
   "page": {
     "title": "Xpedeon Status",
-    "description": "Live service availability for Xpedeon products and supporting systems.",
-    "supportEmail": "support@example.com"
+    "description": "Live availability for Xpedeon application services, integrations and supporting systems.",
+    "supportEmail": "support@algorithmssoft.com"
   },
   "services": [
     {
       "name": "Xpedeon Web App",
-      "description": "Application dashboard, login, and core workflows.",
+      "description": "Login, dashboards and browser-based Xpedeon workflows.",
+      "status": "operational",
+      "history": {
+        "2026-06-10": "operational",
+        "2026-06-11": "operational",
+        "2026-06-12": "operational",
+        "2026-06-13": "operational",
+        "2026-06-14": "operational",
+        "2026-06-15": "operational",
+        "2026-06-16": "operational",
+        "2026-06-17": "operational",
+        "2026-06-18": "operational",
+        "2026-06-19": "operational",
+        "2026-06-20": "operational",
+        "2026-06-21": "operational",
+        "2026-06-22": "operational",
+        "2026-06-23": "operational",
+        "2026-06-24": "operational",
+        "2026-06-25": "operational",
+        "2026-06-26": "operational",
+        "2026-06-27": "operational",
+        "2026-06-28": "degraded",
+        "2026-06-29": "operational",
+        "2026-06-30": "operational",
+        "2026-07-01": "operational",
+        "2026-07-02": "operational",
+        "2026-07-03": "operational",
+        "2026-07-04": "operational",
+        "2026-07-05": "operational",
+        "2026-07-06": "operational",
+        "2026-07-07": "operational",
+        "2026-07-08": "operational",
+        "2026-07-09": "operational"
+      }
+    },
+    {
+      "name": "Application API",
+      "description": "Backend APIs used by Xpedeon web and mobile clients.",
+      "status": "operational",
+      "history": {
+        "2026-06-10": "operational",
+        "2026-06-11": "operational",
+        "2026-06-12": "operational",
+        "2026-06-13": "operational",
+        "2026-06-14": "operational",
+        "2026-06-15": "operational",
+        "2026-06-16": "operational",
+        "2026-06-17": "operational",
+        "2026-06-18": "operational",
+        "2026-06-19": "operational",
+        "2026-06-20": "operational",
+        "2026-06-21": "operational",
+        "2026-06-22": "operational",
+        "2026-06-23": "operational",
+        "2026-06-24": "operational",
+        "2026-06-25": "operational",
+        "2026-06-26": "operational",
+        "2026-06-27": "operational",
+        "2026-06-28": "degraded",
+        "2026-06-29": "operational",
+        "2026-06-30": "operational",
+        "2026-07-01": "operational",
+        "2026-07-02": "operational",
+        "2026-07-03": "operational",
+        "2026-07-04": "operational",
+        "2026-07-05": "operational",
+        "2026-07-06": "operational",
+        "2026-07-07": "operational",
+        "2026-07-08": "operational",
+        "2026-07-09": "operational"
+      }
+    },
+    {
+      "name": "Mobile App",
+      "description": "Mobile approvals, dashboards and connected app services.",
       "status": "operational",
       "history": {
         "2026-06-10": "operational",
@@ -43,45 +117,8 @@
       }
     },
     {
-      "name": "API",
-      "description": "Public and internal API traffic.",
-      "status": "degraded",
-      "history": {
-        "2026-06-10": "operational",
-        "2026-06-11": "operational",
-        "2026-06-12": "operational",
-        "2026-06-13": "degraded",
-        "2026-06-14": "degraded",
-        "2026-06-15": "operational",
-        "2026-06-16": "operational",
-        "2026-06-17": "operational",
-        "2026-06-18": "operational",
-        "2026-06-19": "operational",
-        "2026-06-20": "operational",
-        "2026-06-21": "operational",
-        "2026-06-22": "operational",
-        "2026-06-23": "operational",
-        "2026-06-24": "operational",
-        "2026-06-25": "operational",
-        "2026-06-26": "operational",
-        "2026-06-27": "operational",
-        "2026-06-28": "operational",
-        "2026-06-29": "operational",
-        "2026-06-30": "operational",
-        "2026-07-01": "operational",
-        "2026-07-02": "operational",
-        "2026-07-03": "operational",
-        "2026-07-04": "operational",
-        "2026-07-05": "operational",
-        "2026-07-06": "operational",
-        "2026-07-07": "degraded",
-        "2026-07-08": "operational",
-        "2026-07-09": "degraded"
-      }
-    },
-    {
-      "name": "Database",
-      "description": "Primary data storage and replication.",
+      "name": "Integration Services",
+      "description": "Scheduled integrations, external connectors and background processing.",
       "status": "operational",
       "history": {
         "2026-06-10": "operational",
@@ -89,43 +126,6 @@
         "2026-06-12": "operational",
         "2026-06-13": "operational",
         "2026-06-14": "operational",
-        "2026-06-15": "maintenance",
-        "2026-06-16": "operational",
-        "2026-06-17": "operational",
-        "2026-06-18": "operational",
-        "2026-06-19": "operational",
-        "2026-06-20": "operational",
-        "2026-06-21": "operational",
-        "2026-06-22": "operational",
-        "2026-06-23": "operational",
-        "2026-06-24": "operational",
-        "2026-06-25": "operational",
-        "2026-06-26": "operational",
-        "2026-06-27": "operational",
-        "2026-06-28": "operational",
-        "2026-06-29": "operational",
-        "2026-06-30": "operational",
-        "2026-07-01": "operational",
-        "2026-07-02": "operational",
-        "2026-07-03": "operational",
-        "2026-07-04": "operational",
-        "2026-07-05": "operational",
-        "2026-07-06": "operational",
-        "2026-07-07": "operational",
-        "2026-07-08": "operational",
-        "2026-07-09": "operational"
-      }
-    },
-    {
-      "name": "Notifications",
-      "description": "Email and system notification delivery.",
-      "status": "maintenance",
-      "history": {
-        "2026-06-10": "operational",
-        "2026-06-11": "operational",
-        "2026-06-12": "maintenance",
-        "2026-06-13": "maintenance",
-        "2026-06-14": "maintenance",
         "2026-06-15": "operational",
         "2026-06-16": "operational",
         "2026-06-17": "operational",
@@ -144,32 +144,23 @@
         "2026-06-30": "operational",
         "2026-07-01": "operational",
         "2026-07-02": "operational",
-        "2026-07-03": "operational",
+        "2026-07-03": "maintenance",
         "2026-07-04": "operational",
         "2026-07-05": "operational",
         "2026-07-06": "operational",
-        "2026-07-07": "maintenance",
-        "2026-07-08": "maintenance",
-        "2026-07-09": "maintenance"
+        "2026-07-07": "operational",
+        "2026-07-08": "operational",
+        "2026-07-09": "operational"
       }
     }
   ],
-  "incidents": [
-    {
-      "title": "Increased API latency",
-      "status": "Monitoring",
-      "impact": "Shutdown",
-      "updatedAt": "2026-07-08T09:15:00+05:30",
-      "message": "API response times are elevated for a subset of users. The team has applied mitigation and is monitoring recovery.",
-      "riskLevel": "major"
-    }
-  ],
+  "incidents": [],
   "maintenance": [
     {
-      "title": "Notification service upgrade",
-      "scheduledFor": "2026-07-09T22:00:00+05:30",
+      "title": "Planned infrastructure maintenance",
+      "scheduledFor": "2026-07-13T21:30:00.000Z",
       "duration": "45 minutes",
-      "message": "Email notifications may be delayed while background workers are upgraded."
+      "message": "Routine infrastructure maintenance is planned outside standard business hours. Brief interruptions may occur."
     }
   ]
 }

@@ -1,46 +1,36 @@
-export async function fetchStatus() {
-  const response = await fetch('/api/status');
+async function requestJson(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers
+    }
+  });
 
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error('Status API request failed');
+    throw new Error(payload.error || payload.detail || `Request failed with status ${response.status}`);
   }
-
-  return response.json();
+  return payload;
 }
 
-export async function loginAdmin(password) {
-  const response = await fetch('/api/admin/login', {
+export function fetchStatus(options = {}) {
+  return requestJson('/api/status', { signal: options.signal });
+}
+
+export function loginAdmin(password, options = {}) {
+  return requestJson('/api/admin/login', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    signal: options.signal,
     body: JSON.stringify({ password })
   });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(payload.error ?? 'Unable to sign in');
-  }
-
-  return payload;
 }
 
-export async function saveStatus(config, password) {
-  const response = await fetch('/api/status', {
+export function saveStatus(config, password, options = {}) {
+  return requestJson('/api/status', {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-password': password
-    },
-    body: JSON.stringify(config)
+    signal: options.signal,
+    body: JSON.stringify({ password, config })
   });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(payload.error ?? 'Unable to save status configuration');
-  }
-
-  return payload;
 }
