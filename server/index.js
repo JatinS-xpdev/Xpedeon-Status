@@ -15,6 +15,8 @@ const configPath = process.env.STATUS_CONFIG_PATH
   : path.join(rootDir, 'status.config.json');
 const port = Number.parseInt(process.env.PORT || '3001', 10);
 const configuredAdminPassword = process.env.STATUS_ADMIN_PASSWORD || 'admin';
+const loginRateLimitWindowMs = Number.parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || '900000', 10); // 15 minutes default
+const loginRateLimitMaxAttempts = Number.parseInt(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS || '30', 10); // 30 attempts default
 const isProduction = process.env.NODE_ENV === 'production';
 
 function timingSafeEqual(left, right) {
@@ -32,7 +34,7 @@ function getClientKey(request) {
   return request.ip || request.socket?.remoteAddress || 'unknown';
 }
 
-function createLoginRateLimiter({ windowMs = 5 * 60 * 1000, maxAttempts = 10 } = {}) {
+function createLoginRateLimiter({ windowMs = 900000, maxAttempts = 30 } = {}) {
   const attempts = new Map();
 
   return function loginRateLimiter(request, response, next) {
@@ -104,10 +106,15 @@ function requireAdminPassword(adminPassword) {
 export function createApp({
   configFile = configPath,
   staticDirectory = distDir,
-  adminPassword = configuredAdminPassword
+  adminPassword = configuredAdminPassword,
+  loginWindowMs = loginRateLimitWindowMs,
+  loginMaxAttempts = loginRateLimitMaxAttempts
 } = {}) {
   const app = express();
-  const loginRateLimiter = createLoginRateLimiter();
+  const loginRateLimiter = createLoginRateLimiter({
+    windowMs: loginWindowMs,
+    maxAttempts: loginMaxAttempts
+  });
   const verifyAdminPassword = requireAdminPassword(adminPassword);
 
   app.disable('x-powered-by');
@@ -167,7 +174,13 @@ if (isDirectRun) {
     console.warn('STATUS_ADMIN_PASSWORD is not set. The default admin password is being used.');
   }
 
-  createApp().listen(port, () => {
+  createApp({
+    loginRateLimitWindowMs,
+    loginRateLimitMaxAttempts
+  }).listen(port, () => {
     console.log(`Xpedeon Status API listening on http://localhost:${port}`);
+    if (isProduction) {
+      console.log(`  (${loginRateLimitMaxAttempts} login attempts allowed every ${Math.round(loginRateLimitWindowMs / 1000)}s)`);
+    }
   });
 }
