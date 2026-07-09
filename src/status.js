@@ -23,6 +23,14 @@ export const STATUS_META = {
 
 export const SERVICE_STATUSES = Object.keys(STATUS_META);
 
+export const RISK_LEVELS = ['minor', 'major', 'critical'];
+
+export const RISK_LEVEL_META = {
+  minor: { label: 'Minor', tone: 'warn' },
+  major: { label: 'Major', tone: 'bad' },
+  critical: { label: 'Critical', tone: 'bad' }
+};
+
 function normalizeStatusValue(value, fallbackStatus) {
   if (typeof value === 'string') {
     return value;

@@ -1,4 +1,4 @@
-import { buildStatusSegments, formatDateTime, getWorstServiceStatus, STATUS_META } from '../status.js';
+import { buildStatusSegments, formatDateTime, getWorstServiceStatus, RISK_LEVEL_META, STATUS_META } from '../status.js';
 
 function statusSummary(services) {
   return services.reduce(
@@ -7,6 +7,40 @@ function statusSummary(services) {
       [service.status]: (summary[service.status] ?? 0) + 1
     }),
     {}
+  );
+}
+
+function RaisedIncidentsBanner({ incidents }) {
+  if (!incidents.length) {
+    return null;
+  }
+
+  const worstRisk = incidents.reduce((worst, incident) => {
+    const currentLevel = incident.riskLevel ?? 'minor';
+    const riskRank = { minor: 1, major: 2, critical: 3 }[currentLevel] ?? 1;
+    const worstRank = { minor: 1, major: 2, critical: 3 }[worst] ?? 1;
+    return riskRank > worstRank ? currentLevel : worst;
+  }, 'minor');
+
+  const meta = RISK_LEVEL_META[worstRisk];
+
+  return (
+    <div className={`incident-banner incident-banner-${meta.tone}`}>
+      <div className="incident-banner-content">
+        <div>
+          <h2 className="incident-banner-title">
+            <span className="status-dot" aria-hidden="true" />
+            {incidents.length} Active {incidents.length === 1 ? 'Issue' : 'Issues'}
+          </h2>
+          <p className="incident-banner-summary">
+            {incidents.map((incident) => incident.title).join(' • ')}
+          </p>
+        </div>
+        <a href="#active-incidents" className="incident-banner-link">
+          View details →
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -131,6 +165,8 @@ export function PublicStatusPage({ statusData }) {
         </div>
       </nav>
 
+      {incidents.length > 0 && <RaisedIncidentsBanner incidents={incidents} />}
+
       <header className="hero">
         <div>
           <p className="eyebrow">Construction ERP Service Health</p>
@@ -189,7 +225,9 @@ export function PublicStatusPage({ statusData }) {
       </section>
 
       <section className="content-grid">
-        <IncidentList incidents={incidents} />
+        <div id="active-incidents">
+          <IncidentList incidents={incidents} />
+        </div>
         <MaintenanceList maintenance={maintenance} />
       </section>
 

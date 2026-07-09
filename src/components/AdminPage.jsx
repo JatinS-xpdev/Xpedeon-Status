@@ -4,6 +4,8 @@ import {
   createEmptyIncident,
   createEmptyMaintenance,
   createEmptyService,
+  RISK_LEVELS,
+  RISK_LEVEL_META,
   SERVICE_STATUSES,
   STATUS_META
 } from '../status.js';
@@ -85,6 +87,20 @@ function StatusSelect({ value, onChange }) {
         {SERVICE_STATUSES.map((status) => (
           <option key={status} value={status}>
             {STATUS_META[status].label}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function RiskLevelSelect({ value, onChange }) {
+  return (
+    <Field label="Raised factor">
+      <select value={value ?? 'minor'} onChange={(event) => onChange(event.target.value)}>
+        {RISK_LEVELS.map((level) => (
+          <option key={level} value={level}>
+            {RISK_LEVEL_META[level].label}
           </option>
         ))}
       </select>
@@ -372,8 +388,7 @@ export function AdminPage() {
                   value={incident.impact}
                   onChange={(value) => updateListItem('incidents', index, 'impact', value)}
                 />
-                <TextInput
-                  label="Raised factor"
+                <RiskLevelSelect
                   value={incident.riskLevel ?? 'minor'}
                   onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)}
                 />

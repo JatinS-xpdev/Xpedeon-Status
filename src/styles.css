@@ -110,6 +110,65 @@ a:hover {
   text-decoration: none;
 }
 
+.incident-banner {
+  margin-bottom: 24px;
+  border: 2px solid;
+  border-radius: 8px;
+  padding: 18px 22px;
+  background: var(--surface);
+}
+
+.incident-banner-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.incident-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: 1.08rem;
+  line-height: 1;
+}
+
+.incident-banner-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.incident-banner-link {
+  white-space: nowrap;
+  font-size: 0.92rem;
+}
+
+.incident-banner-good {
+  border-color: var(--good);
+  color: var(--good);
+  background: #edf8f3;
+}
+
+.incident-banner-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: #fff7e8;
+}
+
+.incident-banner-info {
+  border-color: var(--info);
+  color: var(--info);
+  background: #edf6ff;
+}
+
+.incident-banner-bad {
+  border-color: var(--bad);
+  color: var(--bad);
+  background: #fff0ee;
+}
+
 .brand-mark {
   position: relative;
   width: 34px;
@@ -722,6 +781,10 @@ textarea:focus {
   .content-grid,
   .board-heading,
   .service-row {
+    grid-template-columns: 1fr;
+  }
+
+  .incident-banner-content {
     grid-template-columns: 1fr;
   }
 
