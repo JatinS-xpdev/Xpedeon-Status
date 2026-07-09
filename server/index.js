@@ -88,6 +88,7 @@ function validateStatusConfig(config) {
     assertString(incident.title, 'Incident title');
     assertString(incident.status, 'Incident status');
     assertString(incident.impact, 'Incident impact');
+    assertString(incident.riskLevel, 'Incident risk level');
     assertString(incident.updatedAt, 'Incident updated time');
     assertString(incident.message, 'Incident message');
   }

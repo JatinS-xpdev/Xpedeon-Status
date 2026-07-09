@@ -56,6 +56,28 @@ function TextArea({ label, value, onChange }) {
   );
 }
 
+function HistoryInput({ label, value, onChange }) {
+  const historyValue = Array.isArray(value) ? value.join(',') : '';
+
+  return (
+    <Field label={label}>
+      <input
+        type="text"
+        value={historyValue}
+        onChange={(event) => {
+          const parsed = event.target.value
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+          onChange(parsed);
+        }}
+        placeholder="operational,degraded,outage"
+      />
+    </Field>
+  );
+}
+
 function StatusSelect({ value, onChange }) {
   return (
     <Field label="Status">
@@ -307,6 +329,11 @@ export function AdminPage() {
                   value={service.status}
                   onChange={(value) => updateListItem('services', index, 'status', value)}
                 />
+                <HistoryInput
+                  label="History"
+                  value={service.history ?? []}
+                  onChange={(value) => updateListItem('services', index, 'history', value)}
+                />
                 <div className="wide-field">
                   <TextArea
                     label="Description"
@@ -344,6 +371,11 @@ export function AdminPage() {
                   label="Impact"
                   value={incident.impact}
                   onChange={(value) => updateListItem('incidents', index, 'impact', value)}
+                />
+                <TextInput
+                  label="Raised factor"
+                  value={incident.riskLevel ?? 'minor'}
+                  onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)}
                 />
                 <TextInput
                   label="Updated"

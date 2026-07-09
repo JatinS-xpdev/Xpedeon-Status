@@ -1,23 +1,4 @@
-import { formatDateTime, getWorstServiceStatus, STATUS_META } from '../status.js';
-
-function activitySegments(status, seed) {
-  const segmentCount = 30;
-  return Array.from({ length: segmentCount }, (_segment, index) => {
-    if (status === 'outage' && index > segmentCount - 5) {
-      return 'bad';
-    }
-
-    if (status === 'degraded' && (index + seed) % 9 === 0) {
-      return 'warn';
-    }
-
-    if (status === 'maintenance' && (index + seed) % 11 === 0) {
-      return 'info';
-    }
-
-    return 'good';
-  });
-}
+import { buildStatusSegments, formatDateTime, getWorstServiceStatus, STATUS_META } from '../status.js';
 
 function statusSummary(services) {
   return services.reduce(
@@ -29,9 +10,9 @@ function statusSummary(services) {
   );
 }
 
-function ServiceRow({ service, index }) {
+function ServiceRow({ service }) {
   const meta = STATUS_META[service.status] ?? STATUS_META.outage;
-  const segments = activitySegments(service.status, index);
+  const segments = buildStatusSegments(service.history, 30, service.status);
 
   return (
     <article className="service-row">
@@ -40,9 +21,13 @@ function ServiceRow({ service, index }) {
         <p>{service.description}</p>
       </div>
       <div className="uptime-track" aria-label={`Recent uptime for ${service.name}`}>
-        {segments.map((tone, segmentIndex) => (
-          <span className={`uptime-segment uptime-${tone}`} key={`${service.name}-${segmentIndex}`} />
-        ))}
+        {segments.map((segmentStatus, segmentIndex) => {
+          const segmentMeta = STATUS_META[segmentStatus] ?? STATUS_META.operational;
+
+          return (
+            <span className={`uptime-segment uptime-${segmentMeta.tone}`} key={`${service.name}-${segmentIndex}`} />
+          );
+        })}
       </div>
       <span className={`pill pill-${meta.tone}`}>
         <span className="status-dot" aria-hidden="true" />
@@ -197,8 +182,8 @@ export function PublicStatusPage({ statusData }) {
         </div>
 
         <div className="service-list">
-          {services.map((service, index) => (
-            <ServiceRow key={service.name} service={service} index={index} />
+          {services.map((service) => (
+            <ServiceRow key={service.name} service={service} />
           ))}
         </div>
       </section>

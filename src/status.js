@@ -23,6 +23,37 @@ export const STATUS_META = {
 
 export const SERVICE_STATUSES = Object.keys(STATUS_META);
 
+function normalizeStatusValue(value, fallbackStatus) {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value && typeof value === 'object' && typeof value.status === 'string') {
+    return value.status;
+  }
+
+  return fallbackStatus;
+}
+
+export function buildStatusSegments(history = [], segmentCount = 30, fallbackStatus = 'operational') {
+  const normalizedHistory = Array.isArray(history)
+    ? history.map((value) => normalizeStatusValue(value, fallbackStatus)).filter(Boolean)
+    : [];
+
+  if (!normalizedHistory.length) {
+    return Array.from({ length: segmentCount }, () => fallbackStatus);
+  }
+
+  return Array.from({ length: segmentCount }, (_segment, index) => {
+    const historyIndex = Math.min(
+      normalizedHistory.length - 1,
+      Math.floor((index / segmentCount) * normalizedHistory.length)
+    );
+
+    return normalizedHistory[historyIndex];
+  });
+}
+
 export function formatDateTime(value) {
   if (!value) {
     return 'Not set';
@@ -45,7 +76,8 @@ export function createEmptyService() {
   return {
     name: '',
     description: '',
-    status: 'operational'
+    status: 'operational',
+    history: []
   };
 }
 
@@ -54,6 +86,7 @@ export function createEmptyIncident() {
     title: '',
     status: 'Investigating',
     impact: 'minor',
+    riskLevel: 'minor',
     updatedAt: new Date().toISOString(),
     message: ''
   };

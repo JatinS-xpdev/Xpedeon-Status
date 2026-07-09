@@ -8,22 +8,62 @@
     {
       "name": "Xpedeon Web App",
       "description": "Application dashboard, login, and core workflows.",
-      "status": "operational"
+      "status": "operational",
+      "history": [
+        "operational",
+        "operational",
+        "operational",
+        "operational",
+        "operational",
+        "operational",
+        "operational",
+        "operational"
+      ]
     },
     {
       "name": "API",
       "description": "Public and internal API traffic.",
-      "status": "degraded"
+      "status": "degraded",
+      "history": [
+        "operational",
+        "operational",
+        "operational",
+        "degraded",
+        "degraded",
+        "operational",
+        "operational",
+        "degraded"
+      ]
     },
     {
       "name": "Database",
       "description": "Primary data storage and replication.",
-      "status": "operational"
+      "status": "operational",
+      "history": [
+        "operational",
+        "operational",
+        "operational",
+        "operational",
+        "operational",
+        "maintenance",
+        "operational",
+        "operational"
+      ]
     },
     {
       "name": "Notifications",
       "description": "Email and system notification delivery.",
-      "status": "maintenance"
+      "status": "maintenance",
+      "history": [
+        "operational",
+        "operational",
+        "maintenance",
+        "maintenance",
+        "maintenance",
+        "operational",
+        "maintenance",
+        "maintenance"
+      ]
     }
   ],
   "incidents": [
