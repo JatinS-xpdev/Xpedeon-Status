@@ -1,51 +1,86 @@
-# Fix Summary
+# Xpedeon Status 0.3.0 — Change Summary
 
-## Build and project hygiene
+## Requested behaviour
 
-- Added an explicit `engines.node` requirement.
-- Added `npm test` and `npm run check` scripts.
-- Moved Vite and the React plugin to `devDependencies`.
-- Changed `npm start` to `node server/index.js` so it works on Windows as well as Unix shells.
-- Added a `.gitignore` covering dependencies, build output, logs and local environment files.
+### Report-driven date bars
 
-## Shared status logic
+- Incident and maintenance reports now update affected service date bars automatically.
+- Reports can apply to all services or selected service IDs.
+- Minor incidents detect `Degraded Performance`.
+- Major and critical incidents detect `Major Outage`.
+- Maintenance windows detect `Maintenance`.
+- Overlapping reports use deterministic severity precedence: outage, maintenance, degraded, operational.
+- Active reports adjust the current service pill and overall status automatically.
+- Resolved and completed reports stop affecting the current pill but remain available in historical date details.
+- Future maintenance later today can mark today's daily bar without falsely changing the current pill before its start time.
 
-- Centralized service statuses, risk levels, normalization, date helpers and validation in `src/status.js`.
-- Added safe fallback behavior for invalid or missing status values.
-- Added deterministic UTC date handling for 30-day status histories.
-- Made `formatDateTime` resilient to empty and invalid dates.
-- Added service summary and worst-status helpers with unit tests.
+### Expandable history interaction
 
-## Public status page
+- The 30-day service bar expands on pointer hover and keyboard focus.
+- Hovering or focusing an individual date selects it.
+- Clicking a date pins the detail panel open.
+- Clicking the selected date again, pressing Escape or using the close control unpins it.
+- Expanded detail identifies every contributing incident, maintenance window, manual override or current setting.
+- Automatic dates receive a visual marker and an `Auto-detected` badge.
+- The interaction is responsive, keyboard accessible and reduced-motion aware.
 
-- Reworked the layout into reusable sections for navigation, incident banners, service board, metrics, incidents and maintenance.
-- Added a clear 30-day status timeline with accessible labels and hover titles.
-- Added safer empty states and support-email handling.
-- Improved responsive behavior for desktop, tablet and mobile.
+## Correctness fixes
 
-## Admin editor
+- Past dates with no explicit history no longer inherit today's degraded or outage state; they use an operational baseline.
+- Calendar keys now follow the viewer's local date instead of UTC, preventing early-hours date shifts in time zones such as India.
+- Event ranges are treated as half-open, so an event ending exactly at midnight does not incorrectly mark the following day.
+- Date calculations use local calendar construction so daylight-saving transitions do not create missing or duplicated days.
+- Legacy resolved incident statuses infer `resolvedAt` from `updatedAt`.
+- Creating a follow-up for a resolved incident now preserves the original report and starts a new report, avoiding a false continuous outage between the two periods.
+- An empty service list no longer presents the overall page as being under maintenance.
+- Redundant explicit operational entries were removed from the sample configuration; only exceptional manual history needs persistence.
 
-- Removed browser `sessionStorage` password persistence.
-- Added a safer login and sign-out flow.
-- Added client-side validation before save.
-- Fixed the incident risk label from the old wording to `Risk level`.
-- Added service history editing that cycles through supported statuses and allows clearing explicit day overrides.
-- Added better loading, success and error messages.
+## Validation and data integrity
 
-## Server/API
+- Added validation for real calendar dates in manual history.
+- Added incident update/start chronology validation.
+- Added report-scope validation when “All services” is disabled.
+- Preserved validation for unknown service references, duplicate service names, invalid statuses, invalid risks and invalid maintenance ranges.
+- Added stable IDs and backward-compatible normalization for older configurations.
+- Kept completed reports available for history rather than silently discarding them.
+- Configuration saves remain atomic through a temporary-file-and-rename operation.
 
-- Added `/api/health`.
-- Disabled `x-powered-by`.
-- Added a small login rate limiter.
-- Normalized and validated configuration on read/write.
-- Changed file writes to an atomic temp-file-and-rename flow.
-- Reduced production error leakage while keeping useful detail in development.
-- Added support for `STATUS_CONFIG_PATH` for easier testing or deployment-specific storage.
-- Kept production static serving conditional on a built `dist/index.html`, so development API runs cleanly without a build.
+## Administration UX
 
-## Verification performed here
+- Added explicit incident start, update and resolved fields.
+- Added maintenance start/end fields and calculated duration.
+- Added affected-service checkboxes and automatic detected-status previews.
+- Added unsaved-change state and a browser navigation warning.
+- Added confirmations before destructive service/report deletion.
+- Changed resolved/completed cards to a positive visual state.
+- Added a saved-page preview link, stronger empty states and clearer guidance.
+- The password remains only in component memory; browser storage is not used.
 
-- `npm test` passed: 8 tests, 0 failures.
-- `node --check src/status.js` passed.
-- `node --check server/index.js` passed.
-- `npm run build` could not be completed in this sandbox because dependencies were not installed and external package download was unavailable.
+## Public-page UI
+
+- Reworked the service board around expandable, date-level history.
+- Added current-state auto-adjustment notes.
+- Added active-incident severity banners and affected-service chips.
+- Added scheduled maintenance timing, active-window badges and improved status summaries.
+- Added automatic 60-second refresh, refresh-on-tab-return and a non-destructive refresh error notice.
+- Improved desktop, tablet and mobile layouts, focus states and reduced-motion behaviour.
+
+## Server and project cleanup
+
+- Added shared normalization and validation used by the UI and API.
+- Added `/api/health` and API integration tests.
+- Added failed-login throttling and timing-safe password comparison.
+- Disabled framework-identifying headers.
+- Added CSP, frame, referrer, permissions, MIME, DNS-prefetch and cross-origin isolation headers.
+- Removed the unnecessary CSP `unsafe-inline` style allowance.
+- Added atomic writes, configurable storage path and defensive JSON/body handling.
+- Added cross-platform npm scripts and a Node engine requirement.
+- Added `.env.example`, a stronger `.gitignore` and an npm lockfile.
+- Reduced the default configuration from repeated operational dates to exception-only manual history.
+
+## Verification
+
+- `npm test`: 21 passed, 0 failed.
+- `npm run build`: completed successfully with Vite 6.4.3.
+- `npm audit`: 0 vulnerabilities in production and development dependencies.
+- Rendered QA: public page checked at 1440 × 1050 and 390 × 844, including hover expansion, date selection and click-to-pin behaviour.

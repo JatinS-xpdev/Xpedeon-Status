@@ -1,6 +1,12 @@
+import { useEffect, useMemo, useState } from 'react';
 import {
-  buildStatusTimeline,
+  buildServiceTimeline,
+  formatDateOnly,
   formatDateTime,
+  getActiveIncidents,
+  getAffectedServiceNames,
+  getEffectiveServices,
+  getVisibleMaintenance,
   getWorstServiceStatus,
   RISK_LEVEL_META,
   SERVICE_STATUSES,
@@ -12,7 +18,7 @@ function safeMailto(email) {
   return typeof email === 'string' && email.includes('@') ? `mailto:${email}` : undefined;
 }
 
-function Nav({ supportEmail }) {
+function Nav({ supportEmail, onRefresh, refreshing }) {
   const supportHref = safeMailto(supportEmail);
 
   return (
@@ -25,12 +31,27 @@ function Nav({ supportEmail }) {
         <a href="/">Status</a>
         <a href="/admin">Admin</a>
         {supportHref ? <a href={supportHref}>Support</a> : null}
+        {onRefresh ? (
+          <button className="nav-button refresh-button" type="button" onClick={onRefresh} disabled={refreshing}>
+            <span aria-hidden="true">↻</span>
+            {refreshing ? 'Refreshing' : 'Refresh'}
+          </button>
+        ) : null}
       </div>
     </nav>
   );
 }
 
-function IncidentBanner({ incidents }) {
+function AffectedServices({ event, services }) {
+  const names = getAffectedServiceNames(event, services);
+  return (
+    <div className="affected-services" aria-label="Affected services">
+      {names.map((name) => <span key={name}>{name}</span>)}
+    </div>
+  );
+}
+
+function IncidentBanner({ incidents, services }) {
   if (!incidents.length) {
     return null;
   }
@@ -40,13 +61,12 @@ function IncidentBanner({ incidents }) {
     return current.rank > worst.rank ? current : worst;
   }, RISK_LEVEL_META.minor);
 
-  const mostRecent = incidents.reduce((latest, incident) => {
-    const latestTime = new Date(latest.updatedAt).getTime();
-    const incidentTime = new Date(incident.updatedAt).getTime();
-    return incidentTime > latestTime ? incident : latest;
-  }, incidents[0]);
-
-  const heading = worstRisk.rank >= 3 ? 'Critical issue active' : worstRisk.rank === 2 ? 'Major issue active' : 'Active issue';
+  const mostRecent = incidents[0];
+  const heading = worstRisk.rank >= 3
+    ? 'Critical issue active'
+    : worstRisk.rank === 2
+      ? 'Major issue active'
+      : 'Active issue';
 
   return (
     <section className={`incident-banner incident-banner-${worstRisk.tone}`} aria-label="Active incident alert">
@@ -61,16 +81,20 @@ function IncidentBanner({ incidents }) {
         <a className="incident-banner-link" href="#active-incidents">View details</a>
       </div>
       <div className="incident-banner-details">
-        {incidents.map((incident, index) => {
+        {incidents.map((incident) => {
           const riskMeta = RISK_LEVEL_META[incident.riskLevel] ?? RISK_LEVEL_META.minor;
           return (
-            <article className="incident-item" key={`${incident.title}-${index}`}>
+            <article className="incident-item" key={incident.id}>
               <div className="incident-item-header">
-                <h3 className="incident-item-title">{incident.title}</h3>
+                <div>
+                  <h3 className="incident-item-title">{incident.title}</h3>
+                  <p className="incident-state">{incident.status}</p>
+                </div>
                 <span className={`incident-badge incident-badge-${riskMeta.tone}`}>{riskMeta.label}</span>
               </div>
               <p className="incident-item-message">{incident.message}</p>
               {incident.impact ? <p className="incident-item-impact"><strong>Impact:</strong> {incident.impact}</p> : null}
+              <AffectedServices event={incident} services={services} />
             </article>
           );
         })}
@@ -79,39 +103,197 @@ function IncidentBanner({ incidents }) {
   );
 }
 
-function StatusPill({ status }) {
+function StatusPill({ status, compact = false }) {
   const meta = STATUS_META[status] ?? STATUS_META.outage;
   return (
-    <span className={`pill pill-${meta.tone}`}>
+    <span className={`pill pill-${meta.tone}${compact ? ' pill-compact' : ''}`}>
       <span className="status-dot" aria-hidden="true" />
       {meta.label}
     </span>
   );
 }
 
-function ServiceRow({ service }) {
-  const meta = STATUS_META[service.status] ?? STATUS_META.outage;
-  const timeline = buildStatusTimeline(service.history, 30, service.status);
+function HistorySource({ source }) {
+  if (source.kind === 'incident') {
+    const risk = RISK_LEVEL_META[source.riskLevel] ?? RISK_LEVEL_META.minor;
+    return (
+      <article className="history-source history-source-incident">
+        <div className="history-source-heading">
+          <div>
+            <span className="history-source-type">Incident · {risk.label}</span>
+            <h5>{source.title}</h5>
+          </div>
+          <StatusPill status={source.status} compact />
+        </div>
+        <p>{source.message}</p>
+        <dl>
+          <div><dt>State</dt><dd>{source.incidentStatus}</dd></div>
+          <div><dt>Started</dt><dd>{formatDateTime(source.startedAt)}</dd></div>
+          {source.endedAt ? <div><dt>Resolved</dt><dd>{formatDateTime(source.endedAt)}</dd></div> : null}
+        </dl>
+      </article>
+    );
+  }
+
+  if (source.kind === 'maintenance') {
+    return (
+      <article className="history-source history-source-maintenance">
+        <div className="history-source-heading">
+          <div>
+            <span className="history-source-type">Maintenance window</span>
+            <h5>{source.title}</h5>
+          </div>
+          <StatusPill status="maintenance" compact />
+        </div>
+        <p>{source.message}</p>
+        <dl>
+          <div><dt>Starts</dt><dd>{formatDateTime(source.startedAt)}</dd></div>
+          <div><dt>Ends</dt><dd>{formatDateTime(source.endedAt)}</dd></div>
+        </dl>
+      </article>
+    );
+  }
 
   return (
-    <article className="service-row">
+    <article className="history-source history-source-manual">
+      <div className="history-source-heading">
+        <div>
+          <span className="history-source-type">{source.kind === 'current' ? 'Current setting' : 'Manual history'}</span>
+          <h5>{source.title}</h5>
+        </div>
+        <StatusPill status={source.status} compact />
+      </div>
+      <p>{source.message}</p>
+    </article>
+  );
+}
+
+function ExpandableStatusHistory({ service, incidents, maintenance, referenceTime }) {
+  const timelineService = useMemo(() => ({
+    ...service,
+    status: service.configuredStatus ?? service.status
+  }), [service]);
+  const timeline = useMemo(
+    () => buildServiceTimeline(timelineService, incidents, maintenance, 30, referenceTime),
+    [timelineService, incidents, maintenance, referenceTime]
+  );
+  const today = timeline[timeline.length - 1];
+  const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const expanded = hovered || pinned;
+  const selected = timeline.find((entry) => entry.date === selectedDate) ?? today;
+  const detailId = `history-detail-${service.id}`;
+
+  useEffect(() => {
+    if (!pinned && today?.date) {
+      setSelectedDate(today.date);
+    }
+  }, [pinned, today?.date]);
+
+  function handleBlur(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setHovered(false);
+    }
+  }
+
+  return (
+    <div
+      className={`service-history-shell${expanded ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocusCapture={() => setHovered(true)}
+      onBlurCapture={handleBlur}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          setPinned(false);
+          setHovered(false);
+        }
+      }}
+    >
+      <div className="history-track-heading">
+        <span>30-day history</span>
+        <span>{pinned ? 'Pinned open' : 'Hover or click a date'}</span>
+      </div>
+      <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
+        {timeline.map((entry) => (
+          <button
+            type="button"
+            className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date ? ' is-selected' : ''}`}
+            key={entry.date}
+            title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
+            aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
+            aria-pressed={selected?.date === entry.date}
+            aria-current={entry.isToday ? 'date' : undefined}
+            aria-controls={detailId}
+            aria-expanded={expanded && selected?.date === entry.date}
+            onPointerEnter={() => setSelectedDate(entry.date)}
+            onFocus={() => setSelectedDate(entry.date)}
+            onClick={() => {
+              setSelectedDate(entry.date);
+              setPinned((current) => selected?.date === entry.date ? !current : true);
+            }}
+          >
+            <span className="uptime-day">{entry.date.slice(8)}</span>
+            {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
+          </button>
+        ))}
+      </div>
+
+      {expanded && selected ? (
+        <section id={detailId} className="history-detail" aria-live="polite" aria-label={`History details for ${service.name} on ${selected.date}`}>
+          <div className="history-detail-heading">
+            <div>
+              <span className="history-detail-kicker">{selected.isToday ? 'Today' : 'History detail'}</span>
+              <h4>{formatDateOnly(selected.date)}</h4>
+            </div>
+            <div className="history-detail-actions">
+              {selected.isAutomatic ? <span className="automatic-badge">Auto-detected</span> : null}
+              <StatusPill status={selected.status} compact />
+              {pinned ? (
+                <button className="history-close-button" type="button" onClick={() => setPinned(false)} aria-label="Unpin history details">×</button>
+              ) : null}
+            </div>
+          </div>
+          {selected.sources.length ? (
+            <div className="history-source-list">
+              {selected.sources.map((source, index) => (
+                <HistorySource source={source} key={`${source.kind}-${source.id || source.title}-${index}`} />
+              ))}
+            </div>
+          ) : (
+            <div className="history-baseline">
+              <span className="status-dot" aria-hidden="true" />
+              <div>
+                <strong>No incident or maintenance recorded</strong>
+                <p>This date uses the normal operational baseline.</p>
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function ServiceRow({ service, incidents, maintenance, referenceTime }) {
+  const meta = STATUS_META[service.status] ?? STATUS_META.outage;
+  const isAutomaticallyChanged = service.configuredStatus && service.configuredStatus !== service.status;
+
+  return (
+    <article className={`service-row service-row-${meta.tone}`}>
       <div className="service-copy">
         <h3>{service.name}</h3>
         <p>{service.description}</p>
+        {isAutomaticallyChanged ? <span className="auto-status-note">Automatically adjusted by an active report</span> : null}
       </div>
-      <div className="uptime-track" aria-label={`Recent uptime for ${service.name}`}>
-        {timeline.map((entry) => (
-          <span
-            className={`uptime-segment uptime-${entry.tone}`}
-            key={entry.date}
-            title={`${entry.date}: ${entry.label}`}
-          />
-        ))}
-      </div>
-      <span className={`pill pill-${meta.tone}`}>
-        <span className="status-dot" aria-hidden="true" />
-        {meta.label}
-      </span>
+      <ExpandableStatusHistory
+        service={service}
+        incidents={incidents}
+        maintenance={maintenance}
+        referenceTime={referenceTime}
+      />
+      <StatusPill status={service.status} />
     </article>
   );
 }
@@ -140,13 +322,13 @@ function MetricStrip({ services, summary }) {
   );
 }
 
-function ServiceBoard({ services }) {
+function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
   return (
     <section className="status-board" aria-labelledby="service-board-title">
       <div className="board-heading">
         <div>
           <h2 id="service-board-title">Services</h2>
-          <p>Last 30 days are shown from left to right. Hover over a bar for the date and state.</p>
+          <p>Status bars update automatically from incident and maintenance reports. Hover or click any date to see the underlying history.</p>
         </div>
         <div className="legend" aria-label="Legend">
           {SERVICE_STATUSES.map((status) => {
@@ -161,13 +343,21 @@ function ServiceBoard({ services }) {
         </div>
       </div>
       <div className="service-list">
-        {services.length ? services.map((service) => <ServiceRow service={service} key={service.name} />) : <p className="empty board-empty">No services configured.</p>}
+        {services.length ? services.map((service) => (
+          <ServiceRow
+            service={service}
+            incidents={incidents}
+            maintenance={maintenance}
+            referenceTime={referenceTime}
+            key={service.id}
+          />
+        )) : <p className="empty board-empty">No services configured.</p>}
       </div>
     </section>
   );
 }
 
-function IncidentList({ incidents }) {
+function IncidentList({ incidents, services }) {
   return (
     <section className="panel" id="active-incidents" aria-labelledby="active-incidents-title">
       <div className="section-heading">
@@ -176,37 +366,36 @@ function IncidentList({ incidents }) {
       </div>
       {incidents.length ? (
         <div className="stack">
-          {incidents.map((incident, index) => (
-            <article className="timeline-item" key={`${incident.title}-${incident.updatedAt}-${index}`}>
-              <div>
-                <h3>{incident.title}</h3>
-                <p>{incident.message}</p>
-              </div>
-              <dl>
-                <div>
-                  <dt>Status</dt>
-                  <dd>{incident.status}</dd>
+          {incidents.map((incident) => {
+            const risk = RISK_LEVEL_META[incident.riskLevel] ?? RISK_LEVEL_META.minor;
+            return (
+              <article className="timeline-item" key={incident.id}>
+                <div className="timeline-item-heading">
+                  <div>
+                    <h3>{incident.title}</h3>
+                    <p>{incident.message}</p>
+                  </div>
+                  <span className={`incident-badge incident-badge-${risk.tone}`}>{risk.label}</span>
                 </div>
-                <div>
-                  <dt>Impact</dt>
-                  <dd>{incident.impact || 'Not specified'}</dd>
-                </div>
-                <div>
-                  <dt>Updated</dt>
-                  <dd>{formatDateTime(incident.updatedAt)}</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
+                <AffectedServices event={incident} services={services} />
+                <dl>
+                  <div><dt>Status</dt><dd>{incident.status}</dd></div>
+                  <div><dt>Impact</dt><dd>{incident.impact || 'Not specified'}</dd></div>
+                  <div><dt>Started</dt><dd>{formatDateTime(incident.startedAt)}</dd></div>
+                  <div><dt>Updated</dt><dd>{formatDateTime(incident.updatedAt)}</dd></div>
+                </dl>
+              </article>
+            );
+          })}
         </div>
       ) : (
-        <p className="empty">No active incidents.</p>
+        <p className="empty empty-positive"><span className="status-dot" aria-hidden="true" /> No active incidents.</p>
       )}
     </section>
   );
 }
 
-function MaintenanceList({ maintenance }) {
+function MaintenanceList({ maintenance, services, referenceTime }) {
   return (
     <section className="panel" aria-labelledby="scheduled-maintenance-title">
       <div className="section-heading">
@@ -215,24 +404,26 @@ function MaintenanceList({ maintenance }) {
       </div>
       {maintenance.length ? (
         <div className="stack">
-          {maintenance.map((item, index) => (
-            <article className="timeline-item" key={`${item.title}-${item.scheduledFor}-${index}`}>
-              <div>
-                <h3>{item.title}</h3>
-                <p>{item.message}</p>
-              </div>
-              <dl>
-                <div>
-                  <dt>Starts</dt>
-                  <dd>{formatDateTime(item.scheduledFor)}</dd>
+          {maintenance.map((item) => {
+            const active = new Date(item.scheduledFor) <= referenceTime && referenceTime < new Date(item.endsAt);
+            return (
+              <article className="timeline-item" key={item.id}>
+                <div className="timeline-item-heading">
+                  <div>
+                    <h3>{item.title}</h3>
+                    <p>{item.message}</p>
+                  </div>
+                  {active ? <span className="active-maintenance-badge">In progress</span> : null}
                 </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>{item.duration}</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
+                <AffectedServices event={item} services={services} />
+                <dl>
+                  <div><dt>Starts</dt><dd>{formatDateTime(item.scheduledFor)}</dd></div>
+                  <div><dt>Ends</dt><dd>{formatDateTime(item.endsAt)}</dd></div>
+                  <div><dt>Duration</dt><dd>{item.duration}</dd></div>
+                </dl>
+              </article>
+            );
+          })}
         </div>
       ) : (
         <p className="empty">No maintenance scheduled.</p>
@@ -241,15 +432,26 @@ function MaintenanceList({ maintenance }) {
   );
 }
 
-export function PublicStatusPage({ statusData }) {
+export function PublicStatusPage({ statusData, onRefresh, refreshing = false, refreshError = '' }) {
   const { page = {}, services = [], incidents = [], maintenance = [], generatedAt } = statusData;
-  const overallStatus = services.length ? getWorstServiceStatus(services) : STATUS_META.maintenance;
-  const summary = summarizeServices(services);
+  const referenceTime = useMemo(() => {
+    const generatedDate = new Date(generatedAt);
+    return Number.isNaN(generatedDate.getTime()) ? new Date() : generatedDate;
+  }, [generatedAt]);
+  const activeIncidents = useMemo(() => getActiveIncidents(incidents, referenceTime), [incidents, referenceTime]);
+  const visibleMaintenance = useMemo(() => getVisibleMaintenance(maintenance, referenceTime), [maintenance, referenceTime]);
+  const effectiveServices = useMemo(
+    () => getEffectiveServices(services, incidents, maintenance, referenceTime),
+    [services, incidents, maintenance, referenceTime]
+  );
+  const overallStatus = effectiveServices.length ? getWorstServiceStatus(effectiveServices) : STATUS_META.operational;
+  const summary = summarizeServices(effectiveServices);
 
   return (
     <main className="page">
-      <Nav supportEmail={page.supportEmail} />
-      <IncidentBanner incidents={incidents} />
+      <Nav supportEmail={page.supportEmail} onRefresh={onRefresh} refreshing={refreshing} />
+      {refreshError ? <div className="refresh-warning" role="status">The latest refresh failed. Showing the most recently loaded status.</div> : null}
+      <IncidentBanner incidents={activeIncidents} services={services} />
 
       <header className="hero">
         <div>
@@ -266,17 +468,24 @@ export function PublicStatusPage({ statusData }) {
         </aside>
       </header>
 
-      <MetricStrip services={services} summary={summary} />
-      <ServiceBoard services={services} />
+      <MetricStrip services={effectiveServices} summary={summary} />
+      <ServiceBoard
+        services={effectiveServices}
+        incidents={incidents}
+        maintenance={maintenance}
+        referenceTime={referenceTime}
+      />
 
       <div className="content-grid">
-        <IncidentList incidents={incidents} />
-        <MaintenanceList maintenance={maintenance} />
+        <IncidentList incidents={activeIncidents} services={services} />
+        <MaintenanceList maintenance={visibleMaintenance} services={services} referenceTime={referenceTime} />
       </div>
 
       <footer className="footer">
         <span>Need help?</span>
-        {safeMailto(page.supportEmail) ? <a href={safeMailto(page.supportEmail)}>{page.supportEmail}</a> : <span>{page.supportEmail || 'Contact support'}</span>}
+        {safeMailto(page.supportEmail)
+          ? <a href={safeMailto(page.supportEmail)}>{page.supportEmail}</a>
+          : <span>{page.supportEmail || 'Contact support'}</span>}
       </footer>
     </main>
   );
