@@ -1,13 +1,56 @@
 # Xpedeon Status
 
-A manually configured status page built with React, Vite, Node.js and Express.
-
-The application has two parts:
+Xpedeon Status is a lightweight public service-status page with an authenticated administration screen. It is built with React, Vite, Node.js and Express, and stores its configuration in `status.config.json`.
 
 - Public status page: `/`
-- Admin editor: `/admin`
+- Administration page: `/admin`
+- Status API: `/api/status`
 
-The admin editor updates `status.config.json` through the Express API.
+## What this version adds
+
+### Automatic status detection
+
+Incident and maintenance reports now drive both the current service state and the 30-day date bar. Each report can affect all services or a selected set of services.
+
+| Report type | Report level | Detected service status |
+| --- | --- | --- |
+| Incident | Minor | Degraded Performance |
+| Incident | Major | Major Outage |
+| Incident | Critical | Major Outage |
+| Maintenance | Any active or overlapping window | Maintenance |
+
+When more than one state applies, the most severe state wins:
+
+`Major Outage` → `Maintenance` → `Degraded Performance` → `Operational`
+
+The current status pill changes only while a report is active. The daily history bar records any incident or maintenance window that overlaps that date. Therefore, maintenance scheduled for later today can appear in today's date bar without incorrectly showing the service as currently under maintenance.
+
+Resolved incident reports and completed maintenance reports should normally be retained. They stop affecting the current status automatically, but continue to provide historical detail. Deleting a report also removes the history detail derived from that report.
+
+### Expandable 30-day history
+
+Each service has an interactive 30-day bar:
+
+- Point to the bar to expand it temporarily.
+- Point to or focus a date to inspect that day.
+- Click a date to pin the detail panel open.
+- Click the selected date again, use the close button, or press `Escape` to unpin it.
+- Keyboard focus provides the same detail interaction as mouse hover.
+
+The expanded panel explains whether the state came from an incident, maintenance, a manual history entry, or the configured current status. Dates follow the viewer's local calendar, including local-midnight and daylight-saving boundaries.
+
+### Administration improvements
+
+The editor now includes:
+
+- Affected-service selection for every incident and maintenance report.
+- Explicit incident start, update and resolution times.
+- Explicit maintenance start and end times with calculated duration.
+- A live preview of the automatically detected status level.
+- A 30-day editor showing report-driven overlays separately from manual history.
+- Unsaved-change indicators and a browser warning before accidental navigation.
+- Confirmation before destructive deletes.
+- A follow-up action that preserves the old resolved incident instead of creating a false continuous outage.
 
 ## Requirements
 
@@ -32,28 +75,100 @@ Local URLs:
 - API: `http://localhost:3001`
 - Admin editor: `http://localhost:5173/admin`
 
-## Admin password
+### Development password
 
-Set the admin password before starting the server:
+When `NODE_ENV` is not `production` and `STATUS_ADMIN_PASSWORD` is not set, the development password is:
 
-```bash
-STATUS_ADMIN_PASSWORD="change-me" npm run dev
+```text
+admin
 ```
 
-If `STATUS_ADMIN_PASSWORD` is not set, the server falls back to `admin` and prints a warning.
+The server prints a warning when this fallback is active. Set your own password even during local development when the machine or network is shared:
+
+**PowerShell**
+
+```powershell
+$env:STATUS_ADMIN_PASSWORD = "use-a-long-unique-password"
+npm run dev
+```
+
+**Command Prompt**
+
+```cmd
+set STATUS_ADMIN_PASSWORD=use-a-long-unique-password
+npm run dev
+```
+
+**macOS/Linux shell**
+
+```bash
+STATUS_ADMIN_PASSWORD="use-a-long-unique-password" npm run dev
+```
+
+The password is held only in the admin page's in-memory React state. It is not written to local storage or session storage.
 
 ## Production
 
+Build and start the application:
+
 ```bash
 npm run build
-STATUS_ADMIN_PASSWORD="change-me" npm start
 ```
 
-In production, the Express server serves the API and the built React app from `dist`.
+**PowerShell**
 
-## Configuration
+```powershell
+$env:NODE_ENV = "production"
+$env:STATUS_ADMIN_PASSWORD = "use-a-long-unique-password"
+npm start
+```
 
-The status page is controlled by `status.config.json`.
+**macOS/Linux shell**
+
+```bash
+NODE_ENV=production STATUS_ADMIN_PASSWORD="use-a-long-unique-password" npm start
+```
+
+Production startup fails deliberately when `STATUS_ADMIN_PASSWORD` is missing. Serve the application over HTTPS because the admin password is sent to the same-origin API when signing in and saving.
+
+An environment template is provided in `.env.example`. The application does not load `.env` files automatically; provide the variables through your hosting platform, shell, process manager or a suitable environment loader.
+
+## Environment variables
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `STATUS_ADMIN_PASSWORD` | Production: yes | Development: `admin` | Password for `/admin` login and saves |
+| `PORT` | No | `3001` | Express server port |
+| `NODE_ENV` | No | Development behaviour | Set to `production` for production safeguards and caching |
+| `STATUS_CONFIG_PATH` | No | Project `status.config.json` | Alternate persistent configuration file |
+| `TRUST_PROXY` | No | `false` | Set to `true` when one trusted reverse proxy supplies the client IP |
+
+## Configuration model
+
+The persisted file contains four top-level sections:
+
+```json
+{
+  "page": {},
+  "services": [],
+  "incidents": [],
+  "maintenance": []
+}
+```
+
+### Service
+
+```json
+{
+  "id": "service-application-api",
+  "name": "Application API",
+  "description": "Backend APIs used by web and mobile clients.",
+  "status": "operational",
+  "history": {
+    "2026-07-03": "maintenance"
+  }
+}
+```
 
 Supported service statuses:
 
@@ -62,45 +177,92 @@ Supported service statuses:
 - `maintenance`
 - `outage`
 
-Supported incident risk levels:
+`status` is the manual current baseline. Missing past dates use the operational baseline. Add a `history` entry only when a historical day needs a manual override; incident and maintenance reports are overlaid automatically.
+
+### Incident report
+
+```json
+{
+  "id": "incident-api-latency",
+  "title": "Elevated API latency",
+  "status": "Monitoring",
+  "impact": "Some requests may take longer than usual.",
+  "riskLevel": "minor",
+  "startedAt": "2026-07-10T08:00:00.000Z",
+  "updatedAt": "2026-07-10T08:20:00.000Z",
+  "resolvedAt": "",
+  "affectsAllServices": false,
+  "affectedServiceIds": ["service-application-api"],
+  "message": "The team is monitoring recovery after a capacity adjustment."
+}
+```
+
+Supported risk levels:
 
 - `minor`
 - `major`
 - `critical`
 
-Example service:
+Set `resolvedAt` when the incident ends. For compatibility with old data, statuses containing `resolved`, `closed`, `completed` or `fixed` infer the resolution time from `updatedAt` when `resolvedAt` is absent.
+
+### Maintenance report
 
 ```json
 {
-  "name": "Xpedeon Web App",
-  "description": "Login, dashboards and browser-based Xpedeon workflows.",
-  "status": "operational",
-  "history": {
-    "2026-07-09": "operational"
-  }
+  "id": "maintenance-database-upgrade",
+  "title": "Database upgrade",
+  "scheduledFor": "2026-07-13T21:30:00.000Z",
+  "endsAt": "2026-07-13T22:15:00.000Z",
+  "duration": "45 minutes",
+  "affectsAllServices": true,
+  "affectedServiceIds": [],
+  "message": "Brief interruptions may occur during the maintenance window."
 }
 ```
 
-Days missing from `history` inherit the current service status.
+`duration` is recalculated from `scheduledFor` and `endsAt`. Older records containing only `duration` are migrated in memory and receive an inferred end time when saved.
+
+## Validation rules
+
+The client and server share the same normalization and validation logic. Saves are rejected when, for example:
+
+- A required title, message, service name or description is blank.
+- A status or risk level is unsupported.
+- A report refers to an unknown service.
+- “All services” is off but no affected service is selected.
+- An incident update precedes its start.
+- An incident resolution precedes its start.
+- A maintenance end is not later than its start.
+- A manual history key is not a real `YYYY-MM-DD` calendar date.
+- Service names are duplicated.
 
 ## API
 
-- `GET /api/health` - basic API health check
-- `GET /api/status` - returns the current normalized status configuration plus `generatedAt`
-- `POST /api/admin/login` - validates the admin password
-- `PUT /api/status` - saves a new status configuration; body format is `{ "password": "...", "config": { ... } }`
+- `GET /api/health` — process health and whether admin access is configured.
+- `GET /api/status` — normalized status configuration plus a server-generated `generatedAt` timestamp.
+- `POST /api/admin/login` — validates `{ "password": "..." }`.
+- `PUT /api/status` — validates and saves `{ "password": "...", "config": { ... } }`.
 
-## Tests
+The public page refreshes every 60 seconds while visible and also refreshes when the browser tab becomes visible again. A failed background refresh keeps the last successfully loaded status on screen and displays a warning.
+
+Configuration writes use a temporary file followed by an atomic rename to reduce the chance of leaving partially written JSON. API responses are not cached. The server also applies restrictive content, framing, referrer, permissions and cross-origin headers.
+
+## Scripts
 
 ```bash
-npm test
+npm run dev       # API and Vite development server
+npm run client    # Vite only
+npm run server    # Express API only
+npm run build     # Production bundle
+npm run preview   # Preview the Vite bundle
+npm start         # Start Express; serves dist when it exists
+npm test          # Node unit and API integration tests
+npm run check     # Tests followed by production build
 ```
 
-`npm run check` runs the unit tests and then the production build.
+## Verification for version 0.3.0
 
-## Notes on this cleaned version
-
-- Shared status metadata and validation live in `src/status.js` so that the public page, admin editor and server use the same rules.
-- Writes to `status.config.json` are atomic to reduce the risk of partially written JSON.
-- The admin password is kept in component state only and is not written to browser storage.
-- The package scripts are cross-platform; `npm start` no longer depends on Unix-only inline environment variable syntax.
+- 21 automated tests pass.
+- The production Vite build completes successfully.
+- `npm audit` reports zero production and development vulnerabilities.
+- The rendered public page was checked at 1440-pixel desktop and 390-pixel mobile widths, including hover expansion and click-to-pin history details.

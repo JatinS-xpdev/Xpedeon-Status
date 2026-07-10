@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { normalizeStatusConfig, validateStatusConfig } from '../src/status.js';
+import { validateStatusConfig } from '../src/status.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,11 +13,10 @@ const distDir = path.join(rootDir, 'dist');
 const configPath = process.env.STATUS_CONFIG_PATH
   ? path.resolve(process.env.STATUS_CONFIG_PATH)
   : path.join(rootDir, 'status.config.json');
-const port = Number.parseInt(process.env.PORT || '3001', 10);
-const configuredAdminPassword = process.env.STATUS_ADMIN_PASSWORD || 'admin';
-const loginRateLimitWindowMs = Number.parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || '900000', 10); // 15 minutes default
-const loginRateLimitMaxAttempts = Number.parseInt(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS || '30', 10); // 30 attempts default
+const parsedPort = Number.parseInt(process.env.PORT || '3001', 10);
+const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 3001;
 const isProduction = process.env.NODE_ENV === 'production';
+const configuredAdminPassword = process.env.STATUS_ADMIN_PASSWORD || (isProduction ? '' : 'admin');
 
 function timingSafeEqual(left, right) {
   const leftBuffer = Buffer.from(String(left));
@@ -34,27 +33,35 @@ function getClientKey(request) {
   return request.ip || request.socket?.remoteAddress || 'unknown';
 }
 
-function createLoginRateLimiter({ windowMs = 900000, maxAttempts = 30 } = {}) {
-  const attempts = new Map();
+function createLoginAttemptTracker({ windowMs = 15 * 60 * 1000, maxFailures = 8 } = {}) {
+  const failures = new Map();
 
-  return function loginRateLimiter(request, response, next) {
-    const key = getClientKey(request);
-    const now = Date.now();
-    const record = attempts.get(key);
-
+  function getRecord(key, now = Date.now()) {
+    const record = failures.get(key);
     if (!record || record.resetAt <= now) {
-      attempts.set(key, { count: 1, resetAt: now + windowMs });
-      next();
-      return;
+      failures.delete(key);
+      return null;
     }
+    return record;
+  }
 
-    record.count += 1;
-    if (record.count > maxAttempts) {
-      response.status(429).json({ error: 'Too many login attempts. Please try again later.' });
-      return;
+  return {
+    getRetryAfterSeconds(key) {
+      const record = getRecord(key);
+      if (!record || record.count < maxFailures) {
+        return 0;
+      }
+      return Math.max(1, Math.ceil((record.resetAt - Date.now()) / 1000));
+    },
+    recordFailure(key) {
+      const now = Date.now();
+      const record = getRecord(key, now) || { count: 0, resetAt: now + windowMs };
+      record.count += 1;
+      failures.set(key, record);
+    },
+    clear(key) {
+      failures.delete(key);
     }
-
-    next();
   };
 }
 
@@ -70,7 +77,7 @@ async function readStatusConfig(configFile) {
   const rawConfig = await readFile(configFile, 'utf8');
   const parsedConfig = JSON.parse(rawConfig);
   return {
-    ...normalizeStatusConfig(parsedConfig),
+    ...validateStatusConfig(parsedConfig),
     generatedAt: new Date().toISOString()
   };
 }
@@ -81,8 +88,16 @@ async function writeStatusConfig(configFile, config) {
   const tempFile = path.join(directory, `.status.config.${process.pid}.${Date.now()}.tmp`);
 
   await mkdir(directory, { recursive: true });
-  await writeFile(tempFile, `${JSON.stringify(normalizedConfig, null, 2)}\n`, 'utf8');
-  await rename(tempFile, configFile);
+  try {
+    await writeFile(tempFile, `${JSON.stringify(normalizedConfig, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600
+    });
+    await rename(tempFile, configFile);
+  } catch (error) {
+    await unlink(tempFile).catch(() => {});
+    throw error;
+  }
 
   return {
     ...normalizedConfig,
@@ -90,38 +105,67 @@ async function writeStatusConfig(configFile, config) {
   };
 }
 
-function requireAdminPassword(adminPassword) {
-  return function adminPasswordMiddleware(request, response, next) {
-    const submittedPassword = request.body?.password;
+function setSecurityHeaders(_request, response, next) {
+  response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  response.setHeader('X-DNS-Prefetch-Control', 'off');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  response.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'"
+  );
+  next();
+}
 
-    if (!adminPassword || !submittedPassword || !timingSafeEqual(submittedPassword, adminPassword)) {
-      response.status(401).json({ error: 'Invalid administrator password.' });
-      return;
-    }
+function verifyAdminRequest(request, response, adminPassword, attemptTracker) {
+  if (!adminPassword) {
+    response.status(503).json({ error: 'Administrator access is not configured on this server.' });
+    return false;
+  }
 
-    next();
-  };
+  const key = getClientKey(request);
+  const retryAfter = attemptTracker.getRetryAfterSeconds(key);
+  if (retryAfter) {
+    response.setHeader('Retry-After', String(retryAfter));
+    response.status(429).json({ error: 'Too many failed login attempts. Please try again later.' });
+    return false;
+  }
+
+  const submittedPassword = request.body?.password;
+  if (!submittedPassword || !timingSafeEqual(submittedPassword, adminPassword)) {
+    attemptTracker.recordFailure(key);
+    response.status(401).json({ error: 'Invalid administrator password.' });
+    return false;
+  }
+
+  attemptTracker.clear(key);
+  return true;
 }
 
 export function createApp({
   configFile = configPath,
   staticDirectory = distDir,
-  adminPassword = configuredAdminPassword,
-  loginWindowMs = loginRateLimitWindowMs,
-  loginMaxAttempts = loginRateLimitMaxAttempts
+  adminPassword = configuredAdminPassword
 } = {}) {
   const app = express();
-  const loginRateLimiter = createLoginRateLimiter({
-    windowMs: loginWindowMs,
-    maxAttempts: loginMaxAttempts
-  });
-  const verifyAdminPassword = requireAdminPassword(adminPassword);
+  const attemptTracker = createLoginAttemptTracker();
 
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '128kb' }));
+  if (process.env.TRUST_PROXY === 'true') {
+    app.set('trust proxy', 1);
+  }
+  app.use(setSecurityHeaders);
+  app.use(express.json({ limit: '256kb' }));
+  app.use('/api', (_request, response, next) => {
+    response.setHeader('Cache-Control', 'no-store');
+    next();
+  });
 
   app.get('/api/health', (_request, response) => {
-    response.json({ ok: true });
+    response.json({ ok: true, configured: Boolean(adminPassword) });
   });
 
   app.get('/api/status', async (_request, response) => {
@@ -132,16 +176,18 @@ export function createApp({
     }
   });
 
-  app.post('/api/admin/login', loginRateLimiter, (request, response) => {
-    if (!adminPassword || !request.body?.password || !timingSafeEqual(request.body.password, adminPassword)) {
-      response.status(401).json({ error: 'Invalid administrator password.' });
+  app.post('/api/admin/login', (request, response) => {
+    if (!verifyAdminRequest(request, response, adminPassword, attemptTracker)) {
       return;
     }
-
     response.json({ ok: true });
   });
 
-  app.put('/api/status', verifyAdminPassword, async (request, response) => {
+  app.put('/api/status', async (request, response) => {
+    if (!verifyAdminRequest(request, response, adminPassword, attemptTracker)) {
+      return;
+    }
+
     try {
       const nextConfig = await writeStatusConfig(configFile, request.body?.config);
       response.json(nextConfig);
@@ -157,30 +203,39 @@ export function createApp({
   const indexFile = path.join(staticDirectory, 'index.html');
   if (existsSync(indexFile)) {
     app.use(express.static(staticDirectory, {
-      extensions: ['html'],
-      maxAge: isProduction ? '1h' : 0
+      index: false,
+      immutable: isProduction,
+      maxAge: isProduction ? '1y' : 0
     }));
     app.get('*', (_request, response) => {
+      response.setHeader('Cache-Control', 'no-cache');
       response.sendFile(indexFile);
     });
   }
+
+  app.use((error, _request, response, next) => {
+    if (error instanceof SyntaxError && 'body' in error) {
+      response.status(400).json({ error: 'Request body contains invalid JSON.' });
+      return;
+    }
+    next(error);
+  });
 
   return app;
 }
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === __filename;
 if (isDirectRun) {
-  if (!process.env.STATUS_ADMIN_PASSWORD) {
-    console.warn('STATUS_ADMIN_PASSWORD is not set. The default admin password is being used.');
+  if (!configuredAdminPassword) {
+    console.error('STATUS_ADMIN_PASSWORD must be set when NODE_ENV=production.');
+    process.exit(1);
   }
 
-  createApp({
-    loginRateLimitWindowMs,
-    loginRateLimitMaxAttempts
-  }).listen(port, () => {
-    console.log(`Xpedeon Status API listening on http://localhost:${port}`);
-    if (isProduction) {
-      console.log(`  (${loginRateLimitMaxAttempts} login attempts allowed every ${Math.round(loginRateLimitWindowMs / 1000)}s)`);
-    }
+  if (!process.env.STATUS_ADMIN_PASSWORD) {
+    console.warn('STATUS_ADMIN_PASSWORD is not set. Development password “admin” is active.');
+  }
+
+  createApp().listen(port, () => {
+    console.log(`Xpedeon Status listening on http://localhost:${port}`);
   });
 }
