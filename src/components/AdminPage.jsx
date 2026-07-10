@@ -3,20 +3,25 @@ import { fetchStatus, loginAdmin, saveStatus } from '../api.js';
 import {
   buildServiceTimeline,
   createEmptyIncident,
+  createIncidentFollowUp,
   createEmptyMaintenance,
   createEmptyService,
   formatDuration,
   fromDateTimeInputValue,
   getIncidentDerivedStatus,
+  isIncidentResolved,
   normalizeStatusConfig,
   RISK_LEVEL_META,
   RISK_LEVELS,
+  resolveIncident,
   SERVICE_STATUSES,
   STATUS_META,
   toDateTimeInputValue,
   validateStatusConfig
 } from '../status.js';
 import { Notice } from './Notice.jsx';
+
+const INCIDENT_PROGRESS_STATUSES = Object.freeze(['Investigating', 'Identified', 'Monitoring']);
 
 function removeGeneratedFields(config) {
   const { generatedAt: _generatedAt, ...editableConfig } = normalizeStatusConfig(config);
@@ -105,6 +110,59 @@ function RiskLevelSelect({ value, onChange }) {
         })}
       </select>
     </Field>
+  );
+}
+
+function IncidentProgressSelect({ value, onChange }) {
+  const currentValue = typeof value === 'string' && value.trim() ? value.trim() : 'Investigating';
+  const options = INCIDENT_PROGRESS_STATUSES.includes(currentValue)
+    ? INCIDENT_PROGRESS_STATUSES
+    : [currentValue, ...INCIDENT_PROGRESS_STATUSES];
+
+  return (
+    <Field label="Progress status" hint="Use Issue resolution below to close the incident.">
+      <select value={currentValue} onChange={(event) => onChange(event.target.value)}>
+        {options.map((status) => <option key={status} value={status}>{status}</option>)}
+      </select>
+    </Field>
+  );
+}
+
+function IncidentResolutionControl({ incident, onResolve, onCreateFollowUp }) {
+  const resolved = isIncidentResolved(incident);
+
+  return (
+    <fieldset className={`incident-resolution-field${resolved ? ' is-resolved' : ''}`}>
+      <legend>Issue resolution</legend>
+      <div className="incident-resolution-row">
+        <button
+          className={`resolution-state-button${resolved ? ' is-resolved' : ''}`}
+          type="button"
+          aria-pressed={resolved}
+          disabled={resolved}
+          onClick={onResolve}
+        >
+          <span className="resolution-state-icon" aria-hidden="true">{resolved ? '✓' : '○'}</span>
+          <span>
+            <strong>{resolved ? 'Issue resolved' : 'Mark issue as resolved'}</strong>
+            <small>
+              {resolved
+                ? 'This issue no longer changes the current service or overall status.'
+                : 'Resolution immediately removes this incident from the live status calculation after saving.'}
+            </small>
+          </span>
+        </button>
+        {resolved ? (
+          <button className="secondary-button" type="button" onClick={onCreateFollowUp}>
+            Create follow-up incident
+          </button>
+        ) : null}
+      </div>
+      <p>
+        The incident remains in the 30-day history with its original severity and resolution time.
+        A recurrence should be recorded as a follow-up so the resolved interval stays accurate.
+      </p>
+    </fieldset>
   );
 }
 
@@ -414,12 +472,11 @@ export function AdminPage() {
   }
 
   function markIncidentResolved(index) {
-    const now = new Date().toISOString();
     changeConfig((current) => ({
       ...current,
       incidents: current.incidents.map((incident, incidentIndex) => (
         incidentIndex === index
-          ? { ...incident, status: 'Resolved', updatedAt: now, resolvedAt: now }
+          ? resolveIncident(incident)
           : incident
       ))
     }));
@@ -432,15 +489,7 @@ export function AdminPage() {
       // history. A follow-up gets a fresh start time and a new stable ID.
       incidents: [
         ...current.incidents,
-        {
-          ...createEmptyIncident(),
-          title: current.incidents[index].title,
-          impact: current.incidents[index].impact,
-          riskLevel: current.incidents[index].riskLevel,
-          affectsAllServices: current.incidents[index].affectsAllServices,
-          affectedServiceIds: [...current.incidents[index].affectedServiceIds],
-          message: current.incidents[index].message
-        }
+        createIncidentFollowUp(current.incidents[index])
       ]
     }));
   }
@@ -615,31 +664,53 @@ export function AdminPage() {
           >
             {config.incidents.length ? config.incidents.map((incident, index) => {
               const derivedStatus = getIncidentDerivedStatus(incident.riskLevel);
-              const resolved = Boolean(incident.resolvedAt);
+              const resolved = isIncidentResolved(incident);
               return (
                 <article className={`editor-card${resolved ? ' editor-card-resolved' : ''}`} key={incident.id}>
                   <div className="editor-card-heading">
                     <div className="editor-title-row">
                       <h3>{incident.title || `Incident ${index + 1}`}</h3>
-                      <CardStatus status={resolved ? 'operational' : derivedStatus} label={resolved ? 'Resolved' : `Auto: ${STATUS_META[derivedStatus].label}`} />
+                      <CardStatus
+                        status={resolved ? 'operational' : derivedStatus}
+                        label={resolved ? 'Resolved · no live impact' : `Active · ${STATUS_META[derivedStatus].label}`}
+                      />
                     </div>
                     <div className="card-actions">
-                      {resolved ? (
-                        <button className="secondary-button" type="button" onClick={() => reopenIncident(index)}>Create follow-up</button>
-                      ) : (
-                        <button className="secondary-button" type="button" onClick={() => markIncidentResolved(index)}>Mark resolved</button>
-                      )}
                       <button className="danger-button" type="button" onClick={() => removeListItem('incidents', index)}>Delete</button>
                     </div>
                   </div>
                   <div className="form-grid">
+                    <div className="wide-field">
+                      <IncidentResolutionControl
+                        incident={incident}
+                        onResolve={() => markIncidentResolved(index)}
+                        onCreateFollowUp={() => reopenIncident(index)}
+                      />
+                    </div>
                     <TextInput label="Incident title" value={incident.title} onChange={(value) => updateListItem('incidents', index, 'title', value)} />
-                    <TextInput label="Current report status" value={incident.status} onChange={(value) => updateListItem('incidents', index, 'status', value)} placeholder="Investigating / Monitoring / Identified / Resolved" />
+                    {resolved ? (
+                      <ReadOnlyField label="Progress status" value="Resolved" hint="Set automatically from the issue resolution option." />
+                    ) : (
+                      <IncidentProgressSelect value={incident.status} onChange={(value) => updateListItem('incidents', index, 'status', value)} />
+                    )}
                     <RiskLevelSelect value={incident.riskLevel} onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)} />
-                    <ReadOnlyField label="Detected service status" value={STATUS_META[derivedStatus].label} hint="Minor → Degraded; Major/Critical → Major Outage." />
+                    <ReadOnlyField
+                      label="Live service impact"
+                      value={resolved ? 'None — issue resolved' : STATUS_META[derivedStatus].label}
+                      hint={resolved
+                        ? 'The original impact remains visible in service history.'
+                        : 'Minor → Degraded Performance; Major/Critical → Major Outage.'}
+                    />
                     <DateTimeInput label="Started" value={incident.startedAt} onChange={(value) => updateListItem('incidents', index, 'startedAt', value)} />
                     <DateTimeInput label="Last updated" value={incident.updatedAt} onChange={(value) => updateListItem('incidents', index, 'updatedAt', value)} />
-                    <DateTimeInput label="Resolved at" required={false} value={incident.resolvedAt} onChange={(value) => updateListItem('incidents', index, 'resolvedAt', value)} hint="Leave blank while the incident is active." />
+                    {resolved ? (
+                      <DateTimeInput
+                        label="Resolved at"
+                        value={incident.resolvedAt}
+                        onChange={(value) => updateListItem('incidents', index, 'resolvedAt', value)}
+                        hint="Adjust this only when the actual resolution time differs from the recorded time."
+                      />
+                    ) : null}
                     <TextInput label="Impact" value={incident.impact} required={false} onChange={(value) => updateListItem('incidents', index, 'impact', value)} placeholder="Brief affected area" />
                     <div className="wide-field">
                       <AffectedServicesField

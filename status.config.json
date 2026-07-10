@@ -36,16 +36,7 @@
       }
     }
   ],
-  "incidents": [
-    {
-      "title": "Full Shutdown",
-      "status": "Investigating",
-      "impact": "",
-      "riskLevel": "critical",
-      "updatedAt": "2026-07-10T05:58:47.164Z",
-      "message": "Should be operational in 2 hours"
-    }
-  ],
+  "incidents": [],
   "maintenance": [
     {
       "title": "Planned infrastructure maintenance",

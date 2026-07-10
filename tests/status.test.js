@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildServiceTimeline,
   buildStatusSegments,
+  createIncidentFollowUp,
   formatDateTime,
   getActiveIncidents,
   getAffectedServiceNames,
@@ -11,9 +12,12 @@ import {
   getEffectiveServiceStatus,
   getIncidentDerivedStatus,
   getRecentDateKeys,
+  getResolvedIncidents,
   getWorstServiceStatus,
+  isIncidentResolved,
   normalizeServiceStatus,
   normalizeStatusConfig,
+  resolveIncident,
   STATUS_META,
   summarizeServices,
   validateStatusConfig
@@ -216,6 +220,60 @@ test('resolved incident reports leave active lists but remain in history', () =>
   assert.equal(timeline[0].status, 'degraded');
 });
 
+test('resolving an issue removes its live impact while preserving detected history', () => {
+  const service = baseConfig().services[0];
+  const activeIncident = {
+    id: 'incident-live',
+    title: 'Slow response',
+    status: 'Monitoring',
+    impact: 'Web response times',
+    riskLevel: 'minor',
+    startedAt: '2026-07-10T08:00:00.000Z',
+    updatedAt: '2026-07-10T09:00:00.000Z',
+    resolvedAt: '',
+    affectsAllServices: false,
+    affectedServiceIds: ['service-web'],
+    message: 'Performance is recovering.'
+  };
+  const resolvedIncident = resolveIncident(activeIncident, new Date('2026-07-10T10:00:00.000Z'));
+  const afterResolution = new Date('2026-07-10T10:01:00.000Z');
+
+  assert.equal(resolvedIncident.status, 'Resolved');
+  assert.equal(resolvedIncident.resolvedAt, '2026-07-10T10:00:00.000Z');
+  assert.equal(isIncidentResolved(resolvedIncident), true);
+  assert.equal(getEffectiveServiceStatus(service, [resolvedIncident], [], afterResolution), 'operational');
+  assert.deepEqual(getActiveIncidents([resolvedIncident], afterResolution), []);
+  assert.deepEqual(getResolvedIncidents([resolvedIncident], afterResolution), [resolvedIncident]);
+
+  const timeline = buildServiceTimeline(service, [resolvedIncident], [], 1, afterResolution);
+  assert.equal(timeline[0].status, 'degraded');
+  assert.equal(timeline[0].sources[0].incidentStatus, 'Resolved');
+});
+
+test('follow-up incidents copy scope and content without reopening the resolved interval', () => {
+  const resolvedIncident = {
+    id: 'incident-original',
+    title: 'API latency',
+    status: 'Resolved',
+    impact: 'API calls',
+    riskLevel: 'major',
+    startedAt: '2026-07-09T08:00:00.000Z',
+    updatedAt: '2026-07-09T09:00:00.000Z',
+    resolvedAt: '2026-07-09T09:00:00.000Z',
+    affectsAllServices: false,
+    affectedServiceIds: ['service-api'],
+    message: 'Latency was observed.'
+  };
+  const followUp = createIncidentFollowUp(resolvedIncident, new Date('2026-07-10T11:00:00.000Z'));
+
+  assert.notEqual(followUp.id, resolvedIncident.id);
+  assert.equal(followUp.status, 'Investigating');
+  assert.equal(followUp.startedAt, '2026-07-10T11:00:00.000Z');
+  assert.equal(followUp.resolvedAt, '');
+  assert.equal(followUp.title, resolvedIncident.title);
+  assert.deepEqual(followUp.affectedServiceIds, ['service-api']);
+});
+
 test('normalizes legacy reports with stable IDs, all-service scope and inferred times', () => {
   const normalized = normalizeStatusConfig({
     page,
@@ -258,6 +316,27 @@ test('normalization infers a resolution time for legacy resolved reports', () =>
   });
 
   assert.equal(normalized.incidents[0].resolvedAt, '2026-07-09T10:00:00.000Z');
+  assert.equal(normalized.incidents[0].status, 'Resolved');
+});
+
+test('normalization makes an explicit resolution date authoritative', () => {
+  const normalized = normalizeStatusConfig({
+    ...baseConfig(),
+    incidents: [{
+      title: 'Recovered issue',
+      status: 'Monitoring',
+      riskLevel: 'minor',
+      startedAt: '2026-07-09T09:00:00.000Z',
+      updatedAt: '2026-07-09T09:30:00.000Z',
+      resolvedAt: '2026-07-09T10:00:00.000Z',
+      message: 'Recovered.',
+      affectsAllServices: true,
+      affectedServiceIds: []
+    }]
+  });
+
+  assert.equal(normalized.incidents[0].status, 'Resolved');
+  assert.equal(normalized.incidents[0].updatedAt, '2026-07-09T10:00:00.000Z');
 });
 
 test('summarizes services without overwriting counts', () => {
