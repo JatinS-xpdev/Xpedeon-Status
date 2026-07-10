@@ -1,58 +1,106 @@
 # Xpedeon Status
 
-A basic manually configured status page built with React, Node.js, Express, and Vite.
+A manually configured status page built with React, Vite, Node.js and Express.
+
+The application has two parts:
+
+- Public status page: `/`
+- Admin editor: `/admin`
+
+The admin editor updates `status.config.json` through the Express API.
+
+## Requirements
+
+- Node.js 20.11 or later
+- npm
+
+## Install
+
+```bash
+npm install
+```
 
 ## Run locally
 
 ```bash
-npm install
 npm run dev
 ```
 
-Open the Vite app at `http://localhost:5173`. The API runs on `http://localhost:3001`.
+Local URLs:
 
-## Admin editor
+- Front end: `http://localhost:5173`
+- API: `http://localhost:3001`
+- Admin editor: `http://localhost:5173/admin`
 
-Open `http://localhost:5173/admin` to edit the status page in the browser.
+## Admin password
 
-The default admin password is `admin`. Set `STATUS_ADMIN_PASSWORD` before starting the server to change it:
+Set the admin password before starting the server:
 
 ```bash
 STATUS_ADMIN_PASSWORD="change-me" npm run dev
 ```
 
-The admin page can update:
+If `STATUS_ADMIN_PASSWORD` is not set, the server falls back to `admin` and prints a warning.
 
-- page title, description, and support email
-- services and their status
-- active incidents
-- scheduled maintenance
+## Production
 
-Saving from the admin page writes the changes back to `status.config.json` through `PUT /api/status`, which requires the admin password.
+```bash
+npm run build
+STATUS_ADMIN_PASSWORD="change-me" npm start
+```
 
-## Manual configuration
+In production, the Express server serves the API and the built React app from `dist`.
 
-Edit `status.config.json` to change:
+## Configuration
 
-- page title, description, and support email
-- services and their status
-- active incidents
-- scheduled maintenance
+The status page is controlled by `status.config.json`.
 
-Supported service statuses are:
+Supported service statuses:
 
 - `operational`
 - `degraded`
 - `maintenance`
 - `outage`
 
-The Node server reads `status.config.json` on every `/api/status` request, so refresh the browser after editing the file.
+Supported incident risk levels:
 
-## Production
+- `minor`
+- `major`
+- `critical`
 
-```bash
-npm run build
-npm start
+Example service:
+
+```json
+{
+  "name": "Xpedeon Web App",
+  "description": "Login, dashboards and browser-based Xpedeon workflows.",
+  "status": "operational",
+  "history": {
+    "2026-07-09": "operational"
+  }
+}
 ```
 
-The production server serves both the API and the built React app.
+Days missing from `history` inherit the current service status.
+
+## API
+
+- `GET /api/health` - basic API health check
+- `GET /api/status` - returns the current normalized status configuration plus `generatedAt`
+- `POST /api/admin/login` - validates the admin password
+- `PUT /api/status` - saves a new status configuration; body format is `{ "password": "...", "config": { ... } }`
+
+## Tests
+
+```bash
+npm test
+```
+
+`npm run check` runs the unit tests and then the production build.
+
+## Notes on this cleaned version
+
+- Shared status metadata and validation live in `src/status.js` so that the public page, admin editor and server use the same rules.
+- Writes to `status.config.json` are atomic to reduce the risk of partially written JSON.
+- The admin password is kept in component state only and is not written to browser storage.
+- The package scripts are cross-platform; `npm start` no longer depends on Unix-only inline environment variable syntax.
