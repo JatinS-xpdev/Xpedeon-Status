@@ -1,4 +1,16 @@
-# Xpedeon Status 0.3.0 — Change Summary
+# Xpedeon Status 0.4.0 — Change Summary
+
+## Per-incident resolved option
+
+- Added a prominent **Issue resolution** control to every incident card in the admin page.
+- Resolving an issue sets its progress status, last-updated time and resolution time consistently.
+- Resolved issues immediately stop contributing to current service and overall status after saving.
+- Resolution does not blindly force a service to Operational; any other active incident, maintenance window or manual baseline still applies.
+- Resolved issues leave the active banner and Active Incidents list.
+- Added a public **Recently Resolved** section showing incidents resolved during the last 30 days.
+- Historical date bars retain the incident’s detected severity through its actual resolution time.
+- Added a follow-up action that creates a new active incident without reopening or stretching the original resolved interval.
+- Made explicit resolution dates authoritative during normalization, preventing a report from being stored as both resolved and “Investigating”.
 
 ## Requested behaviour
 
@@ -48,6 +60,7 @@
 ## Administration UX
 
 - Added explicit incident start, update and resolved fields.
+- Added a per-incident resolution control with clear live-status consequences.
 - Added maintenance start/end fields and calculated duration.
 - Added affected-service checkboxes and automatic detected-status previews.
 - Added unsaved-change state and a browser navigation warning.
@@ -59,6 +72,7 @@
 ## Public-page UI
 
 - Reworked the service board around expandable, date-level history.
+- Added a Recently Resolved incident panel with resolution timestamps and affected-service details.
 - Added current-state auto-adjustment notes.
 - Added active-incident severity banners and affected-service chips.
 - Added scheduled maintenance timing, active-window badges and improved status summaries.
@@ -80,7 +94,6 @@
 
 ## Verification
 
-- `npm test`: 21 passed, 0 failed.
+- `npm test`: 24 passed, 0 failed.
 - `npm run build`: completed successfully with Vite 6.4.3.
 - `npm audit`: 0 vulnerabilities in production and development dependencies.
-- Rendered QA: public page checked at 1440 × 1050 and 390 × 844, including hover expansion, date selection and click-to-pin behaviour.

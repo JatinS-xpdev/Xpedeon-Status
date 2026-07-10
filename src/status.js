@@ -302,14 +302,53 @@ function getMaintenanceEnd(item) {
   return new Date(new Date(item.scheduledFor).getTime() + parseDurationToMilliseconds(item.duration));
 }
 
+export function isIncidentResolved(incident) {
+  return isValidDate(incident?.resolvedAt)
+    || RESOLVED_STATUS_PATTERN.test(cleanString(incident?.status));
+}
+
 function getIncidentEnd(incident) {
   if (isValidDate(incident?.resolvedAt)) {
     return new Date(incident.resolvedAt);
   }
-  if (RESOLVED_STATUS_PATTERN.test(cleanString(incident?.status)) && isValidDate(incident?.updatedAt)) {
+  if (isIncidentResolved(incident) && isValidDate(incident?.updatedAt)) {
     return new Date(incident.updatedAt);
   }
   return null;
+}
+
+export function resolveIncident(incident = {}, at = new Date()) {
+  const requestedDate = at instanceof Date ? at : new Date(at);
+  let resolvedDate = Number.isNaN(requestedDate.getTime()) ? new Date() : requestedDate;
+  const startedAt = new Date(incident?.startedAt || incident?.updatedAt);
+
+  // A resolution cannot precede the incident. Clamping here keeps the admin
+  // action safe even when an incident was accidentally scheduled in future.
+  if (!Number.isNaN(startedAt.getTime()) && resolvedDate < startedAt) {
+    resolvedDate = startedAt;
+  }
+
+  const resolvedAt = resolvedDate.toISOString();
+  return {
+    ...incident,
+    status: 'Resolved',
+    updatedAt: resolvedAt,
+    resolvedAt
+  };
+}
+
+export function createIncidentFollowUp(incident = {}, at = new Date()) {
+  return {
+    ...createEmptyIncident(at),
+    title: cleanString(incident.title),
+    impact: cleanString(incident.impact),
+    riskLevel: normalizeRiskLevel(incident.riskLevel),
+    affectsAllServices: incident.affectsAllServices !== false,
+    affectedServiceIds: Array.isArray(incident.affectedServiceIds)
+      ? [...incident.affectedServiceIds]
+      : [],
+    message: cleanString(incident.message)
+  };
 }
 
 export function isIncidentActiveAt(incident, at = new Date()) {
@@ -510,6 +549,25 @@ export function getActiveIncidents(incidents = [], at = new Date()) {
     .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
 }
 
+export function getResolvedIncidents(incidents = [], at = new Date(), lookbackDays = 30) {
+  const instant = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(instant.getTime())) {
+    return [];
+  }
+
+  const safeLookback = Number.isFinite(lookbackDays) && lookbackDays > 0
+    ? Math.min(Math.floor(lookbackDays), 3660)
+    : 30;
+  const cutoff = new Date(instant.getTime() - safeLookback * DAY_MS);
+  const incidentList = Array.isArray(incidents) ? incidents : [];
+
+  return incidentList
+    .map((incident) => ({ incident, endedAt: getIncidentEnd(incident) }))
+    .filter(({ endedAt }) => endedAt && endedAt <= instant && endedAt >= cutoff)
+    .sort((left, right) => right.endedAt - left.endedAt)
+    .map(({ incident }) => incident);
+}
+
 export function getVisibleMaintenance(maintenance = [], at = new Date()) {
   const instant = at instanceof Date ? at : new Date(at);
   const maintenanceList = Array.isArray(maintenance) ? maintenance : [];
@@ -564,8 +622,9 @@ export function createEmptyService() {
   };
 }
 
-export function createEmptyIncident() {
-  const now = new Date().toISOString();
+export function createEmptyIncident(at = new Date()) {
+  const requestedDate = at instanceof Date ? at : new Date(at);
+  const now = (Number.isNaN(requestedDate.getTime()) ? new Date() : requestedDate).toISOString();
   return {
     id: createRuntimeId('incident'),
     title: '',
@@ -644,11 +703,15 @@ function normalizeIncidents(incidents, services) {
   const fallbackNow = new Date().toISOString();
 
   return (Array.isArray(incidents) ? incidents : []).map((incident = {}, index) => {
-    const status = cleanString(incident.status, 'Investigating');
-    const updatedAt = normalizeDateTime(incident.updatedAt, fallbackNow);
-    const startedAt = normalizeDateTime(incident.startedAt, updatedAt);
+    const rawStatus = cleanString(incident.status, 'Investigating');
+    const rawUpdatedAt = normalizeDateTime(incident.updatedAt, fallbackNow);
+    const startedAt = normalizeDateTime(incident.startedAt, rawUpdatedAt);
     const explicitResolvedAt = normalizeDateTime(incident.resolvedAt, '');
-    const resolvedAt = explicitResolvedAt || (RESOLVED_STATUS_PATTERN.test(status) ? updatedAt : '');
+    const resolvedAt = explicitResolvedAt || (RESOLVED_STATUS_PATTERN.test(rawStatus) ? rawUpdatedAt : '');
+    const updatedAt = resolvedAt && new Date(resolvedAt) > new Date(rawUpdatedAt)
+      ? resolvedAt
+      : rawUpdatedAt;
+    const status = resolvedAt ? 'Resolved' : rawStatus;
 
     return {
       id: createStableId('incident', incident.id, incident.title, index, usedIds),

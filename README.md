@@ -8,6 +8,18 @@ Xpedeon Status is a lightweight public service-status page with an authenticated
 
 ## What this version adds
 
+### Per-incident resolution
+
+Every incident card in `/admin` now has a prominent **Issue resolution** control. Selecting **Mark issue as resolved**:
+
+- Records the resolution time and sets the progress status to `Resolved`.
+- Removes that incident from the active-incident banner and active-incident list after the changes are saved.
+- Recalculates each affected service and the overall page status immediately. A service returns to its manual baseline or to the next-most-severe active report; it is not forced to Operational when another report still applies.
+- Preserves the incident’s original severity on every affected date in the 30-day history.
+- Adds the incident to the public **Recently Resolved** section for 30 days.
+
+The resolution time remains editable for corrections. A recurrence should be recorded with **Create follow-up incident**. This creates a new active report with the same title, impact, risk and service scope while keeping the original resolved period intact.
+
 ### Automatic status detection
 
 Incident and maintenance reports now drive both the current service state and the 30-day date bar. Each report can affect all services or a selected set of services.
@@ -45,6 +57,7 @@ The editor now includes:
 
 - Affected-service selection for every incident and maintenance report.
 - Explicit incident start, update and resolution times.
+- A clear per-incident resolution control with an explanation of its live-status effect.
 - Explicit maintenance start and end times with calculated duration.
 - A live preview of the automatically detected status level.
 - A 30-day editor showing report-driven overlays separately from manual history.
@@ -203,7 +216,7 @@ Supported risk levels:
 - `major`
 - `critical`
 
-Set `resolvedAt` when the incident ends. For compatibility with old data, statuses containing `resolved`, `closed`, `completed` or `fixed` infer the resolution time from `updatedAt` when `resolvedAt` is absent.
+Set `resolvedAt` when the incident ends. The admin resolution control sets `status`, `updatedAt` and `resolvedAt` together. An explicit `resolvedAt` is authoritative and normalizes the progress status to `Resolved`. For compatibility with old data, statuses containing `resolved`, `closed`, `completed` or `fixed` infer the resolution time from `updatedAt` when `resolvedAt` is absent.
 
 ### Maintenance report
 
@@ -260,9 +273,8 @@ npm test          # Node unit and API integration tests
 npm run check     # Tests followed by production build
 ```
 
-## Verification for version 0.3.0
+## Verification for version 0.4.0
 
-- 21 automated tests pass.
+- 24 automated tests pass.
 - The production Vite build completes successfully.
 - `npm audit` reports zero production and development vulnerabilities.
-- The rendered public page was checked at 1440-pixel desktop and 390-pixel mobile widths, including hover expansion and click-to-pin history details.

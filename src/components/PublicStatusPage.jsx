@@ -6,6 +6,7 @@ import {
   getActiveIncidents,
   getAffectedServiceNames,
   getEffectiveServices,
+  getResolvedIncidents,
   getVisibleMaintenance,
   getWorstServiceStatus,
   RISK_LEVEL_META,
@@ -395,6 +396,43 @@ function IncidentList({ incidents, services }) {
   );
 }
 
+function ResolvedIncidentList({ incidents, services }) {
+  if (!incidents.length) {
+    return null;
+  }
+
+  return (
+    <section className="panel resolved-incidents-panel" aria-labelledby="resolved-incidents-title">
+      <div className="section-heading">
+        <div>
+          <h2 id="resolved-incidents-title">Recently Resolved</h2>
+          <p>Incidents resolved during the last 30 days.</p>
+        </div>
+        <span>{incidents.length}</span>
+      </div>
+      <div className="stack">
+        {incidents.map((incident) => (
+          <article className="timeline-item timeline-item-resolved" key={incident.id}>
+            <div className="timeline-item-heading">
+              <div>
+                <h3>{incident.title}</h3>
+                <p>{incident.message}</p>
+              </div>
+              <span className="resolved-incident-badge">Resolved</span>
+            </div>
+            <AffectedServices event={incident} services={services} />
+            <dl>
+              <div><dt>Impact</dt><dd>{incident.impact || 'Not specified'}</dd></div>
+              <div><dt>Started</dt><dd>{formatDateTime(incident.startedAt)}</dd></div>
+              <div><dt>Resolved</dt><dd>{formatDateTime(incident.resolvedAt || incident.updatedAt)}</dd></div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function MaintenanceList({ maintenance, services, referenceTime }) {
   return (
     <section className="panel" aria-labelledby="scheduled-maintenance-title">
@@ -439,6 +477,10 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
     return Number.isNaN(generatedDate.getTime()) ? new Date() : generatedDate;
   }, [generatedAt]);
   const activeIncidents = useMemo(() => getActiveIncidents(incidents, referenceTime), [incidents, referenceTime]);
+  const resolvedIncidents = useMemo(
+    () => getResolvedIncidents(incidents, referenceTime, 30),
+    [incidents, referenceTime]
+  );
   const visibleMaintenance = useMemo(() => getVisibleMaintenance(maintenance, referenceTime), [maintenance, referenceTime]);
   const effectiveServices = useMemo(
     () => getEffectiveServices(services, incidents, maintenance, referenceTime),
@@ -480,6 +522,7 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
         <IncidentList incidents={activeIncidents} services={services} />
         <MaintenanceList maintenance={visibleMaintenance} services={services} referenceTime={referenceTime} />
       </div>
+      <ResolvedIncidentList incidents={resolvedIncidents} services={services} />
 
       <footer className="footer">
         <span>Need help?</span>
