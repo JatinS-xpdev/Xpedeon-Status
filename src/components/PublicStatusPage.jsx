@@ -179,9 +179,8 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   );
   const today = timeline[timeline.length - 1];
   const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
-  const [hovered, setHovered] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const expanded = hovered || pinned;
   const selected = timeline.find((entry) => entry.date === selectedDate) ?? today;
   const detailId = `history-detail-${service.id}`;
 
@@ -191,86 +190,72 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
     }
   }, [pinned, today?.date]);
 
-  function handleBlur(event) {
-    if (!event.currentTarget.contains(event.relatedTarget)) {
-      setHovered(false);
-    }
-  }
-
   return (
-    <div
-      className={`service-history-shell${expanded ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
-      onFocusCapture={() => setHovered(true)}
-      onBlurCapture={handleBlur}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          setPinned(false);
-          setHovered(false);
-        }
-      }}
-    >
+    <div className={`service-history-shell${isOpen ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}>
       <div className="history-track-heading">
-        <span>30-day history</span>
-        <span>{pinned ? 'Pinned open' : 'Hover or click a date'}</span>
-      </div>
-      <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
-        {timeline.map((entry) => (
-          <button
-            type="button"
-            className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date ? ' is-selected' : ''}`}
-            key={entry.date}
-            title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
-            aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
-            aria-pressed={selected?.date === entry.date}
-            aria-current={entry.isToday ? 'date' : undefined}
-            aria-controls={detailId}
-            aria-expanded={expanded && selected?.date === entry.date}
-            onPointerEnter={() => setSelectedDate(entry.date)}
-            onFocus={() => setSelectedDate(entry.date)}
-            onClick={() => {
-              setSelectedDate(entry.date);
-              setPinned((current) => selected?.date === entry.date ? !current : true);
-            }}
-          >
-            <span className="uptime-day">{entry.date.slice(8)}</span>
-            {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
-          </button>
-        ))}
+        <button className="history-toggle-button" type="button" onClick={() => setIsOpen((current) => !current)}>
+          {isOpen ? 'Hide history' : 'Show history'}
+        </button>
       </div>
 
-      {expanded && selected ? (
-        <section id={detailId} className="history-detail" aria-live="polite" aria-label={`History details for ${service.name} on ${selected.date}`}>
-          <div className="history-detail-heading">
-            <div>
-              <span className="history-detail-kicker">{selected.isToday ? 'Today' : 'History detail'}</span>
-              <h4>{formatDateOnly(selected.date)}</h4>
-            </div>
-            <div className="history-detail-actions">
-              {selected.isAutomatic ? <span className="automatic-badge">Auto-detected</span> : null}
-              <StatusPill status={selected.status} compact />
-              {pinned ? (
-                <button className="history-close-button" type="button" onClick={() => setPinned(false)} aria-label="Unpin history details">×</button>
-              ) : null}
-            </div>
+      {isOpen ? (
+        <>
+          <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
+            {timeline.map((entry) => (
+              <button
+                type="button"
+                className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date ? ' is-selected' : ''}`}
+                key={entry.date}
+                title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
+                aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
+                aria-pressed={selected?.date === entry.date}
+                aria-current={entry.isToday ? 'date' : undefined}
+                aria-controls={detailId}
+                aria-expanded={selected?.date === entry.date}
+                onClick={() => {
+                  setSelectedDate(entry.date);
+                  setPinned((current) => selected?.date === entry.date ? !current : true);
+                }}
+              >
+                <span className="uptime-day">{entry.date.slice(8)}</span>
+                {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
+              </button>
+            ))}
           </div>
-          {selected.sources.length ? (
-            <div className="history-source-list">
-              {selected.sources.map((source, index) => (
-                <HistorySource source={source} key={`${source.kind}-${source.id || source.title}-${index}`} />
-              ))}
-            </div>
-          ) : (
-            <div className="history-baseline">
-              <span className="status-dot" aria-hidden="true" />
-              <div>
-                <strong>No incident or maintenance recorded</strong>
-                <p>This date uses the normal operational baseline.</p>
+
+          {selected ? (
+            <section id={detailId} className="history-detail" aria-live="polite" aria-label={`History details for ${service.name} on ${selected.date}`}>
+              <div className="history-detail-heading">
+                <div>
+                  <span className="history-detail-kicker">{selected.isToday ? 'Today' : 'History detail'}</span>
+                  <h4>{formatDateOnly(selected.date)}</h4>
+                </div>
+                <div className="history-detail-actions">
+                  {selected.isAutomatic ? <span className="automatic-badge">Auto-detected</span> : null}
+                  <StatusPill status={selected.status} compact />
+                  {pinned ? (
+                    <button className="history-close-button" type="button" onClick={() => setPinned(false)} aria-label="Unpin history details">×</button>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          )}
-        </section>
+              {selected.sources.length ? (
+                <div className="history-source-list">
+                  {selected.sources.map((source, index) => (
+                    <HistorySource source={source} key={`${source.kind}-${source.id || source.title}-${index}`} />
+                  ))}
+                </div>
+              ) : (
+                <div className="history-baseline">
+                  <span className="status-dot" aria-hidden="true" />
+                  <div>
+                    <strong>No incident or maintenance recorded</strong>
+                    <p>This date uses the normal operational baseline.</p>
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

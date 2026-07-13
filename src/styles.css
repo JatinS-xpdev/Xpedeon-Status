@@ -436,10 +436,11 @@ button:disabled {
 }
 
 .history-track-heading {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  align-items: center;
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
@@ -447,6 +448,21 @@ button:disabled {
 
 .history-track-heading span:first-child {
   color: var(--text);
+}
+
+.history-toggle-button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.history-toggle-button:hover,
+.history-toggle-button:focus-visible {
+  border-color: var(--brand);
 }
 
 .uptime-track {
