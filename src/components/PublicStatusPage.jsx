@@ -11,8 +11,7 @@ import {
   getWorstServiceStatus,
   RISK_LEVEL_META,
   SERVICE_STATUSES,
-  STATUS_META,
-  summarizeServices
+  STATUS_META
 } from '../status.js';
 
 function safeMailto(email) {
@@ -299,30 +298,6 @@ function ServiceRow({ service, incidents, maintenance, referenceTime }) {
   );
 }
 
-function MetricStrip({ services, summary }) {
-  const total = services.length;
-  return (
-    <section className="health-strip" aria-label="Service status summary">
-      <div>
-        <span className="metric-value">{total}</span>
-        <span className="metric-label">Monitored services</span>
-      </div>
-      <div>
-        <span className="metric-value">{summary.operational ?? 0}</span>
-        <span className="metric-label">Operational</span>
-      </div>
-      <div>
-        <span className="metric-value">{(summary.degraded ?? 0) + (summary.maintenance ?? 0)}</span>
-        <span className="metric-label">Warnings</span>
-      </div>
-      <div>
-        <span className="metric-value">{summary.outage ?? 0}</span>
-        <span className="metric-label">Outages</span>
-      </div>
-    </section>
-  );
-}
-
 function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
   return (
     <section className="status-board" aria-labelledby="service-board-title">
@@ -487,7 +462,6 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
     [services, incidents, maintenance, referenceTime]
   );
   const overallStatus = effectiveServices.length ? getWorstServiceStatus(effectiveServices) : STATUS_META.operational;
-  const summary = summarizeServices(effectiveServices);
 
   return (
     <main className="page">
@@ -510,7 +484,6 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
         </aside>
       </header>
 
-      <MetricStrip services={effectiveServices} summary={summary} />
       <ServiceBoard
         services={effectiveServices}
         incidents={incidents}

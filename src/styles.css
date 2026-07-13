@@ -153,6 +153,7 @@ button:disabled {
   gap: 30px;
   align-items: center;
   padding: 42px;
+  margin-bottom: 24px;
 }
 
 .hero h1,
@@ -238,16 +239,14 @@ button:disabled {
   box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 12%, transparent);
 }
 
-.overall-label,
-.metric-value {
+.overall-label {
   display: block;
   font-size: 1.8rem;
   font-weight: 800;
   line-height: 1.1;
 }
 
-.overall-time,
-.metric-label {
+.overall-time {
   display: block;
   margin-top: 4px;
   color: var(--muted);
@@ -341,20 +340,6 @@ button:disabled {
   border-radius: 999px;
   font-size: 0.82rem;
   font-weight: 800;
-}
-
-.health-strip {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin: 18px 0;
-}
-
-.health-strip > div {
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--surface);
 }
 
 .status-board,
@@ -1325,10 +1310,6 @@ input[type="checkbox"] {
     grid-template-columns: 1fr;
   }
 
-  .health-strip {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   .admin-header,
   .incident-banner-header,
   .board-heading,
@@ -1367,10 +1348,6 @@ input[type="checkbox"] {
   .incident-banner {
     padding: 20px;
     border-radius: 18px;
-  }
-
-  .health-strip {
-    grid-template-columns: 1fr;
   }
 
   .uptime-track,
