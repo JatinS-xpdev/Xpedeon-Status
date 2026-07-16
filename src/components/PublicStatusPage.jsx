@@ -113,6 +113,30 @@ function StatusPill({ status, compact = false }) {
   );
 }
 
+function EventUpdateLog({ updates, type = 'event' }) {
+  // Updates are normalized oldest-first, so reversing avoids reparsing every
+  // timestamp during each render.
+  const items = Array.isArray(updates) ? updates.slice().reverse() : [];
+  if (!items.length) return null;
+
+  return (
+    <section className="event-update-log" aria-label={`${type} updates`}>
+      <h4>Updates</h4>
+      <ol>
+        {items.map((update) => (
+          <li key={update.id}>
+            <div className="event-update-meta">
+              {update.status ? <strong>{update.status}</strong> : <strong>Progress update</strong>}
+              <time dateTime={update.createdAt}>{formatDateTime(update.createdAt)}</time>
+            </div>
+            <p>{update.message}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function HistorySource({ source }) {
   if (source.kind === 'incident') {
     const risk = RISK_LEVEL_META[source.riskLevel] ?? RISK_LEVEL_META.minor;
@@ -131,6 +155,7 @@ function HistorySource({ source }) {
           <div><dt>Started</dt><dd>{formatDateTime(source.startedAt)}</dd></div>
           {source.endedAt ? <div><dt>Resolved</dt><dd>{formatDateTime(source.endedAt)}</dd></div> : null}
         </dl>
+        <EventUpdateLog updates={source.updates} type="incident" />
       </article>
     );
   }
@@ -150,6 +175,7 @@ function HistorySource({ source }) {
           <div><dt>Starts</dt><dd>{formatDateTime(source.startedAt)}</dd></div>
           <div><dt>Ends</dt><dd>{formatDateTime(source.endedAt)}</dd></div>
         </dl>
+        <EventUpdateLog updates={source.updates} type="maintenance" />
       </article>
     );
   }
@@ -169,13 +195,12 @@ function HistorySource({ source }) {
 }
 
 function ExpandableStatusHistory({ service, incidents, maintenance, referenceTime }) {
-  const timelineService = useMemo(() => ({
-    ...service,
-    status: service.configuredStatus ?? service.status
-  }), [service]);
   const timeline = useMemo(
-    () => buildServiceTimeline(timelineService, incidents, maintenance, 30, referenceTime),
-    [timelineService, incidents, maintenance, referenceTime]
+    () => buildServiceTimeline({
+      ...service,
+      status: service.configuredStatus ?? service.status
+    }, incidents, maintenance, 30, referenceTime),
+    [service, incidents, maintenance, referenceTime]
   );
   const today = timeline[timeline.length - 1];
   const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
@@ -183,6 +208,7 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   const [pinned, setPinned] = useState(false);
   const selected = timeline.find((entry) => entry.date === selectedDate) ?? today;
   const detailId = `history-detail-${service.id}`;
+  const eventDayCount = timeline.filter((entry) => entry.isAutomatic).length;
 
   useEffect(() => {
     if (!pinned && today?.date) {
@@ -193,8 +219,21 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   return (
     <div className={`service-history-shell${isOpen ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}>
       <div className="history-track-heading">
-        <button className="history-toggle-button" type="button" onClick={() => setIsOpen((current) => !current)}>
-          {isOpen ? 'Hide history' : 'Show history'}
+        <button
+          className="history-toggle-button"
+          type="button"
+          aria-expanded={isOpen}
+          aria-controls={detailId}
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          <span className="history-toggle-icon" aria-hidden="true">
+            <i /><i /><i /><i /><i />
+          </span>
+          <span className="history-toggle-copy">
+            <strong>{isOpen ? 'Close 30-day history' : 'View 30-day history'}</strong>
+            <small>{eventDayCount ? `${eventDayCount} affected day${eventDayCount === 1 ? '' : 's'}` : 'No reported events'}</small>
+          </span>
+          <span className="history-toggle-chevron" aria-hidden="true">⌄</span>
         </button>
       </div>
 
@@ -289,7 +328,7 @@ function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
       <div className="board-heading">
         <div>
           <h2 id="service-board-title">Services</h2>
-          <p>Status bars update automatically from incident and maintenance reports. Hover or click any date to see the underlying history.</p>
+          <p>Status bars update automatically from reports. Open a service's 30-day history, then select a date for details.</p>
         </div>
         <div className="legend" aria-label="Legend">
           {SERVICE_STATUSES.map((status) => {
@@ -345,6 +384,7 @@ function IncidentList({ incidents, services }) {
                   <div><dt>Started</dt><dd>{formatDateTime(incident.startedAt)}</dd></div>
                   <div><dt>Updated</dt><dd>{formatDateTime(incident.updatedAt)}</dd></div>
                 </dl>
+                <EventUpdateLog updates={incident.updates} type="incident" />
               </article>
             );
           })}
@@ -386,6 +426,7 @@ function ResolvedIncidentList({ incidents, services }) {
               <div><dt>Started</dt><dd>{formatDateTime(incident.startedAt)}</dd></div>
               <div><dt>Resolved</dt><dd>{formatDateTime(incident.resolvedAt || incident.updatedAt)}</dd></div>
             </dl>
+            <EventUpdateLog updates={incident.updates} type="incident" />
           </article>
         ))}
       </div>
@@ -397,21 +438,27 @@ function MaintenanceList({ maintenance, services, referenceTime }) {
   return (
     <section className="panel" aria-labelledby="scheduled-maintenance-title">
       <div className="section-heading">
-        <h2 id="scheduled-maintenance-title">Scheduled Maintenance</h2>
+        <div>
+          <h2 id="scheduled-maintenance-title">Maintenance</h2>
+          <p>Scheduled, active and recently completed work.</p>
+        </div>
         <span>{maintenance.length}</span>
       </div>
       {maintenance.length ? (
         <div className="stack">
           {maintenance.map((item) => {
             const active = new Date(item.scheduledFor) <= referenceTime && referenceTime < new Date(item.endsAt);
+            const completed = new Date(item.endsAt) < referenceTime;
             return (
-              <article className="timeline-item" key={item.id}>
+              <article className={`timeline-item${completed ? ' timeline-item-completed' : ''}`} key={item.id}>
                 <div className="timeline-item-heading">
                   <div>
                     <h3>{item.title}</h3>
                     <p>{item.message}</p>
                   </div>
-                  {active ? <span className="active-maintenance-badge">In progress</span> : null}
+                  <span className={active ? 'active-maintenance-badge' : completed ? 'completed-maintenance-badge' : 'scheduled-maintenance-badge'}>
+                    {active ? 'In progress' : completed ? 'Completed' : 'Scheduled'}
+                  </span>
                 </div>
                 <AffectedServices event={item} services={services} />
                 <dl>
@@ -419,6 +466,7 @@ function MaintenanceList({ maintenance, services, referenceTime }) {
                   <div><dt>Ends</dt><dd>{formatDateTime(item.endsAt)}</dd></div>
                   <div><dt>Duration</dt><dd>{item.duration}</dd></div>
                 </dl>
+                <EventUpdateLog updates={item.updates} type="maintenance" />
               </article>
             );
           })}

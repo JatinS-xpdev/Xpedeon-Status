@@ -6,6 +6,7 @@
   },
   "services": [
     {
+      "id": "service-xpedeon-web-app",
       "name": "Xpedeon Web App",
       "description": "Login, dashboards and browser-based Xpedeon workflows.",
       "status": "operational",
@@ -14,6 +15,7 @@
       }
     },
     {
+      "id": "service-application-api",
       "name": "Application API",
       "description": "Backend APIs used by Xpedeon web and mobile clients.",
       "status": "operational",
@@ -22,12 +24,14 @@
       }
     },
     {
+      "id": "service-mobile-app",
       "name": "Mobile App",
       "description": "Mobile approvals, dashboards and connected app services.",
       "status": "operational",
       "history": {}
     },
     {
+      "id": "service-integration-services",
       "name": "Integration Services",
       "description": "Scheduled integrations, external connectors and background processing.",
       "status": "operational",
@@ -36,12 +40,30 @@
       }
     }
   ],
-  "incidents": [],
+  "incidents": [
+    {
+      "id": "incident-api-breakdown",
+      "title": "API breakdown",
+      "status": "Resolved",
+      "impact": "",
+      "riskLevel": "major",
+      "startedAt": "2026-07-10T11:10:00.000Z",
+      "updatedAt": "2026-07-16T04:40:10.817Z",
+      "resolvedAt": "2026-07-16T04:40:10.817Z",
+      "affectsAllServices": true,
+      "affectedServiceIds": [],
+      "message": "MSS"
+    }
+  ],
   "maintenance": [
     {
+      "id": "maintenance-planned-infrastructure-maintenance",
       "title": "Planned infrastructure maintenance",
       "scheduledFor": "2026-07-13T21:30:00.000Z",
+      "endsAt": "2026-07-13T22:15:00.000Z",
       "duration": "45 minutes",
+      "affectsAllServices": true,
+      "affectedServiceIds": [],
       "message": "Routine infrastructure maintenance is planned outside standard business hours. Brief interruptions may occur."
     }
   ]

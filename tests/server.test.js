@@ -137,3 +137,37 @@ test('admin endpoints return a clear error when no password is configured', asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('status reads permanently remove reports older than the retention window', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'xpedeon-status-'));
+  const configFile = path.join(directory, 'status.config.json');
+  const config = sampleConfig();
+  const oldEnd = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+  const oldStart = new Date(new Date(oldEnd).getTime() - 60 * 60 * 1000).toISOString();
+  config.incidents.push({
+    id: 'old-incident', title: 'Old issue', status: 'Resolved', impact: '', riskLevel: 'minor',
+    startedAt: oldStart, updatedAt: oldEnd, resolvedAt: oldEnd, affectsAllServices: true,
+    affectedServiceIds: [], message: 'This issue was resolved.'
+  });
+  config.maintenance.push({
+    id: 'old-maintenance', title: 'Old work', scheduledFor: oldStart, endsAt: oldEnd,
+    duration: '1 hour', affectsAllServices: true, affectedServiceIds: [], message: 'Old maintenance.'
+  });
+  await writeFile(configFile, JSON.stringify(config), 'utf8');
+
+  try {
+    await withServer({ configFile, staticDirectory: path.join(directory, 'missing'), adminPassword: 'secret' }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/status`);
+      assert.equal(response.status, 200);
+      const payload = await response.json();
+      assert.deepEqual(payload.incidents, []);
+      assert.deepEqual(payload.maintenance, []);
+
+      const persisted = JSON.parse(await readFile(configFile, 'utf8'));
+      assert.deepEqual(persisted.incidents, []);
+      assert.deepEqual(persisted.maintenance, []);
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

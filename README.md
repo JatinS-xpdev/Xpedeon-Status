@@ -8,6 +8,12 @@ Xpedeon Status is a lightweight public service-status page with an authenticated
 
 ## What this version adds
 
+### Timestamped progress updates
+
+Incident and maintenance reports now keep a chronological `updates` log separate from the stable public summary. In `/admin`, use **Add update** to record what changed and when it was published. Incident entries also capture the progress state. Update timelines appear on active incidents, resolved incidents, maintenance cards and service-history details.
+
+All displayed date/times include the viewer's local timezone plus an explicit UTC reference, so the same instant can be compared unambiguously across regions.
+
 ### Per-incident resolution
 
 Every incident card in `/admin` now has a prominent **Issue resolution** control. Selecting **Mark issue as resolved**:
@@ -37,7 +43,7 @@ When more than one state applies, the most severe state wins:
 
 The current status pill changes only while a report is active. The daily history bar records any incident or maintenance window that overlaps that date. Therefore, maintenance scheduled for later today can appear in today's date bar without incorrectly showing the service as currently under maintenance.
 
-Resolved incident reports and completed maintenance reports should normally be retained. They stop affecting the current status automatically, but continue to provide historical detail. Deleting a report also removes the history detail derived from that report.
+Resolved incidents and completed maintenance remain available for historical detail for 30 days after their end time. On the first status read or admin save after that boundary, the server permanently removes them from `status.config.json`. Active incidents and active or future maintenance are never removed by retention cleanup. Manual deletion removes report-derived history immediately.
 
 ### Expandable 30-day history
 
@@ -57,6 +63,9 @@ The editor now includes:
 
 - Affected-service selection for every incident and maintenance report.
 - Explicit incident start, update and resolution times.
+- Separate timestamped update logs for incidents and maintenance.
+- A 30-day automatic retention policy for resolved incidents and completed maintenance.
+- A compact admin overview showing service, active-report and retained-report counts.
 - A clear per-incident resolution control with an explanation of its live-status effect.
 - Explicit maintenance start and end times with calculated duration.
 - A live preview of the automatically detected status level.
@@ -206,7 +215,15 @@ Supported service statuses:
   "resolvedAt": "",
   "affectsAllServices": false,
   "affectedServiceIds": ["service-application-api"],
-  "message": "The team is monitoring recovery after a capacity adjustment."
+  "message": "Some API requests are taking longer than usual.",
+  "updates": [
+    {
+      "id": "update-capacity-adjustment",
+      "status": "Monitoring",
+      "message": "The team is monitoring recovery after a capacity adjustment.",
+      "createdAt": "2026-07-10T08:20:00.000Z"
+    }
+  ]
 }
 ```
 
@@ -229,11 +246,21 @@ Set `resolvedAt` when the incident ends. The admin resolution control sets `stat
   "duration": "45 minutes",
   "affectsAllServices": true,
   "affectedServiceIds": [],
-  "message": "Brief interruptions may occur during the maintenance window."
+  "message": "Brief interruptions may occur during the maintenance window.",
+  "updates": [
+    {
+      "id": "update-maintenance-started",
+      "status": "",
+      "message": "The planned work has started.",
+      "createdAt": "2026-07-13T21:30:00.000Z"
+    }
+  ]
 }
 ```
 
 `duration` is recalculated from `scheduledFor` and `endsAt`. Older records containing only `duration` are migrated in memory and receive an inferred end time when saved.
+
+Update entries require a message and `createdAt` timestamp. Incident updates cannot predate the incident start. Arrays are stored oldest-first and displayed newest-first.
 
 ## Validation rules
 

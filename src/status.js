@@ -27,6 +27,7 @@ const RESOLVED_STATUS_PATTERN = /\b(resolved|closed|completed|fixed)\b/i;
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_MAINTENANCE_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const REPORT_RETENTION_DAYS = 30;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -200,10 +201,25 @@ export function formatDateTime(value) {
     return 'Not set';
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value));
+  const date = new Date(value);
+  const local = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  }).format(date);
+  const standard = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date);
+  return `${local} · ${standard} UTC`;
 }
 
 export function formatDateOnly(value) {
@@ -415,7 +431,8 @@ function makeIncidentSource(incident) {
     incidentStatus: incident.status,
     startedAt: incident.startedAt,
     endedAt: getIncidentEnd(incident)?.toISOString() || '',
-    updatedAt: incident.updatedAt
+    updatedAt: incident.updatedAt,
+    updates: incident.updates || []
   };
 }
 
@@ -430,7 +447,8 @@ function makeMaintenanceSource(item) {
     label: STATUS_META.maintenance.label,
     startedAt: item.scheduledFor,
     endedAt: end?.toISOString() || '',
-    duration: item.duration
+    duration: item.duration,
+    updates: item.updates || []
   };
 }
 
@@ -568,15 +586,57 @@ export function getResolvedIncidents(incidents = [], at = new Date(), lookbackDa
     .map(({ incident }) => incident);
 }
 
-export function getVisibleMaintenance(maintenance = [], at = new Date()) {
+export function getVisibleMaintenance(maintenance = [], at = new Date(), lookbackDays = REPORT_RETENTION_DAYS) {
   const instant = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(instant.getTime())) {
+    return [];
+  }
+  const safeLookback = Number.isFinite(lookbackDays) && lookbackDays > 0
+    ? Math.min(Math.floor(lookbackDays), 3660)
+    : REPORT_RETENTION_DAYS;
+  const cutoff = new Date(instant.getTime() - safeLookback * DAY_MS);
   const maintenanceList = Array.isArray(maintenance) ? maintenance : [];
   return maintenanceList
     .filter((item) => {
       const end = getMaintenanceEnd(item);
-      return end && end >= instant;
+      return end && end >= cutoff;
     })
-    .sort((left, right) => new Date(left.scheduledFor) - new Date(right.scheduledFor));
+    .sort((left, right) => {
+      const leftActive = isMaintenanceActiveAt(left, instant);
+      const rightActive = isMaintenanceActiveAt(right, instant);
+      if (leftActive !== rightActive) return leftActive ? -1 : 1;
+      const leftEnd = getMaintenanceEnd(left);
+      const rightEnd = getMaintenanceEnd(right);
+      const leftPast = leftEnd < instant;
+      const rightPast = rightEnd < instant;
+      if (leftPast !== rightPast) return leftPast ? 1 : -1;
+      return leftPast
+        ? rightEnd - leftEnd
+        : new Date(left.scheduledFor) - new Date(right.scheduledFor);
+    });
+}
+
+export function pruneExpiredReports(config = {}, at = new Date(), retentionDays = REPORT_RETENTION_DAYS) {
+  const instant = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(instant.getTime())) {
+    return config;
+  }
+  const safeRetention = Number.isFinite(retentionDays) && retentionDays > 0
+    ? Math.min(Math.floor(retentionDays), 3660)
+    : REPORT_RETENTION_DAYS;
+  const cutoff = new Date(instant.getTime() - safeRetention * DAY_MS);
+
+  return {
+    ...config,
+    incidents: (Array.isArray(config.incidents) ? config.incidents : []).filter((incident) => {
+      const endedAt = getIncidentEnd(incident);
+      return !endedAt || endedAt >= cutoff;
+    }),
+    maintenance: (Array.isArray(config.maintenance) ? config.maintenance : []).filter((item) => {
+      const endedAt = getMaintenanceEnd(item);
+      return !endedAt || endedAt >= cutoff;
+    })
+  };
 }
 
 export function getAffectedServiceNames(event, services = []) {
@@ -636,7 +696,8 @@ export function createEmptyIncident(at = new Date()) {
     resolvedAt: '',
     affectsAllServices: true,
     affectedServiceIds: [],
-    message: ''
+    message: '',
+    updates: []
   };
 }
 
@@ -651,8 +712,32 @@ export function createEmptyMaintenance() {
     duration: formatDuration(start, end),
     affectsAllServices: true,
     affectedServiceIds: [],
-    message: ''
+    message: '',
+    updates: []
   };
+}
+
+export function createEventUpdate({ status = '', at = new Date() } = {}) {
+  const requestedDate = at instanceof Date ? at : new Date(at);
+  const createdAt = (Number.isNaN(requestedDate.getTime()) ? new Date() : requestedDate).toISOString();
+  return {
+    id: createRuntimeId('update'),
+    status: cleanString(status),
+    message: '',
+    createdAt
+  };
+}
+
+function normalizeUpdates(updates, fallbackStatus = '') {
+  const usedIds = new Set();
+  return (Array.isArray(updates) ? updates : [])
+    .map((update = {}, index) => ({
+      id: createStableId('update', update.id, update.message, index, usedIds),
+      status: cleanString(update.status, fallbackStatus),
+      message: cleanString(update.message),
+      createdAt: normalizeDateTime(update.createdAt, '')
+    }))
+    .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt));
 }
 
 function normalizeHistory(history) {
@@ -708,9 +793,14 @@ function normalizeIncidents(incidents, services) {
     const startedAt = normalizeDateTime(incident.startedAt, rawUpdatedAt);
     const explicitResolvedAt = normalizeDateTime(incident.resolvedAt, '');
     const resolvedAt = explicitResolvedAt || (RESOLVED_STATUS_PATTERN.test(rawStatus) ? rawUpdatedAt : '');
-    const updatedAt = resolvedAt && new Date(resolvedAt) > new Date(rawUpdatedAt)
-      ? resolvedAt
+    const updates = normalizeUpdates(incident.updates, rawStatus);
+    const latestUpdateAt = updates.at(-1)?.createdAt;
+    const effectiveUpdatedAt = latestUpdateAt && new Date(latestUpdateAt) > new Date(rawUpdatedAt)
+      ? latestUpdateAt
       : rawUpdatedAt;
+    const updatedAt = resolvedAt && new Date(resolvedAt) > new Date(effectiveUpdatedAt)
+      ? resolvedAt
+      : effectiveUpdatedAt;
     const status = resolvedAt ? 'Resolved' : rawStatus;
 
     return {
@@ -723,7 +813,8 @@ function normalizeIncidents(incidents, services) {
       updatedAt,
       resolvedAt,
       ...normalizeEventScope(incident, services),
-      message: cleanString(incident.message)
+      message: cleanString(incident.message),
+      updates
     };
   });
 }
@@ -745,7 +836,8 @@ function normalizeMaintenance(maintenance, services) {
       endsAt,
       duration: formatDuration(scheduledFor, endsAt),
       ...normalizeEventScope(item, services),
-      message: cleanString(item.message)
+      message: cleanString(item.message),
+      updates: normalizeUpdates(item.updates)
     };
   });
 }
@@ -851,6 +943,13 @@ export function validateStatusConfig(config = {}) {
         throw new Error(`Incident ${index + 1} resolved time cannot be before its start time`);
       }
     }
+    incident.updates.forEach((update, updateIndex) => {
+      assertNonEmptyString(update.message, `Incident ${index + 1} update ${updateIndex + 1} message`);
+      assertValidDate(update.createdAt, `Incident ${index + 1} update ${updateIndex + 1} time`);
+      if (new Date(update.createdAt) < new Date(incident.startedAt)) {
+        throw new Error(`Incident ${index + 1} update ${updateIndex + 1} cannot be before its start time`);
+      }
+    });
     incident.affectedServiceIds.forEach((serviceId) => {
       if (!serviceIds.has(serviceId)) {
         throw new Error(`Incident ${index + 1} references an unknown service`);
@@ -869,6 +968,10 @@ export function validateStatusConfig(config = {}) {
       throw new Error(`Maintenance ${index + 1} end time must be after its start time`);
     }
     assertNonEmptyString(item.message, `Maintenance ${index + 1} message`);
+    item.updates.forEach((update, updateIndex) => {
+      assertNonEmptyString(update.message, `Maintenance ${index + 1} update ${updateIndex + 1} message`);
+      assertValidDate(update.createdAt, `Maintenance ${index + 1} update ${updateIndex + 1} time`);
+    });
     item.affectedServiceIds.forEach((serviceId) => {
       if (!serviceIds.has(serviceId)) {
         throw new Error(`Maintenance ${index + 1} references an unknown service`);

@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchStatus, loginAdmin, saveStatus } from '../api.js';
 import {
   buildServiceTimeline,
+  createEventUpdate,
   createEmptyIncident,
   createIncidentFollowUp,
   createEmptyMaintenance,
   createEmptyService,
+  formatDateTime,
   formatDuration,
   fromDateTimeInputValue,
+  getActiveIncidents,
   getIncidentDerivedStatus,
+  isMaintenanceActiveAt,
   isIncidentResolved,
   normalizeStatusConfig,
   RISK_LEVEL_META,
@@ -68,7 +72,7 @@ function TextArea({ label, value, onChange, hint, required = true, rows = 4, pla
 
 function DateTimeInput({ label, value, onChange, hint, required = true }) {
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={[hint, value ? `Displayed as ${formatDateTime(value)}` : ''].filter(Boolean).join(' ')}>
       <input
         required={required}
         type="datetime-local"
@@ -76,6 +80,53 @@ function DateTimeInput({ label, value, onChange, hint, required = true }) {
         onChange={(event) => onChange(fromDateTimeInputValue(event.target.value))}
       />
     </Field>
+  );
+}
+
+function EventUpdatesEditor({ kind, updates, currentStatus, onAdd, onChange, onRemove }) {
+  const items = Array.isArray(updates) ? updates : [];
+  const isIncident = kind === 'incident';
+
+  return (
+    <section className="event-updates-editor" aria-label={`${isIncident ? 'Incident' : 'Maintenance'} updates`}>
+      <div className="event-updates-heading">
+        <div>
+          <h4>Timestamped updates</h4>
+          <p>Add progress updates here. The public summary above remains separate and is not overwritten.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onAdd}>Add update</button>
+      </div>
+      {items.length ? (
+        <div className="event-update-list">
+          {items.map((update, index) => (
+            <article className="event-update-editor" key={update.id}>
+              <div className="event-update-number">
+                <strong>Update {index + 1}</strong>
+                <button className="danger-button" type="button" onClick={() => onRemove(index)}>Remove</button>
+              </div>
+              <div className="form-grid">
+                {isIncident ? (
+                  <IncidentProgressSelect
+                    value={update.status || currentStatus}
+                    onChange={(value) => onChange(index, 'status', value)}
+                  />
+                ) : null}
+                <DateTimeInput label="Published at" value={update.createdAt} onChange={(value) => onChange(index, 'createdAt', value)} />
+                <div className="wide-field">
+                  <TextArea
+                    label="Update message"
+                    value={update.message}
+                    rows={3}
+                    placeholder="What changed since the previous update?"
+                    onChange={(value) => onChange(index, 'message', value)}
+                  />
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : <p className="empty event-updates-empty">No timestamped updates yet.</p>}
+    </section>
   );
 }
 
@@ -332,6 +383,17 @@ export function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const editorStats = useMemo(() => {
+    const now = new Date();
+    const incidents = config?.incidents || [];
+    const maintenance = config?.maintenance || [];
+    return {
+      services: config?.services?.length || 0,
+      activeIncidents: getActiveIncidents(incidents, now).length,
+      activeMaintenance: maintenance.filter((item) => isMaintenanceActiveAt(item, now)).length,
+      retainedReports: incidents.length + maintenance.length
+    };
+  }, [config]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -398,6 +460,51 @@ export function AdminPage() {
       ...current,
       [listName]: current[listName].map((item, itemIndex) => (
         itemIndex === index ? { ...item, ...scope } : item
+      ))
+    }));
+  }
+
+  function addEventUpdate(listName, index) {
+    changeConfig((current) => ({
+      ...current,
+      [listName]: current[listName].map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        const update = createEventUpdate({ status: listName === 'incidents' ? item.status : '' });
+        return {
+          ...item,
+          updatedAt: listName === 'incidents' ? update.createdAt : item.updatedAt,
+          updates: [...(item.updates || []), update]
+        };
+      })
+    }));
+  }
+
+  function updateEventUpdate(listName, itemIndex, updateIndex, field, value) {
+    changeConfig((current) => ({
+      ...current,
+      [listName]: current[listName].map((item, index) => {
+        if (index !== itemIndex) return item;
+        const updates = (item.updates || []).map((update, index) => (
+          index === updateIndex ? { ...update, [field]: value } : update
+        ));
+        const changedUpdate = updates[updateIndex];
+        return {
+          ...item,
+          status: listName === 'incidents' && field === 'status' ? value : item.status,
+          updatedAt: listName === 'incidents' && changedUpdate?.createdAt ? changedUpdate.createdAt : item.updatedAt,
+          updates
+        };
+      })
+    }));
+  }
+
+  function removeEventUpdate(listName, itemIndex, updateIndex) {
+    changeConfig((current) => ({
+      ...current,
+      [listName]: current[listName].map((item, index) => (
+        index === itemIndex
+          ? { ...item, updates: (item.updates || []).filter((_update, index) => index !== updateIndex) }
+          : item
       ))
     }));
   }
@@ -608,6 +715,13 @@ export function AdminPage() {
 
       {config ? (
         <form id="status-editor" className="admin-form" onSubmit={handleSave}>
+          <section className="admin-overview" aria-label="Status configuration overview">
+            <div className="admin-stat"><strong>{editorStats.services}</strong><span>Services</span></div>
+            <div className="admin-stat admin-stat-bad"><strong>{editorStats.activeIncidents}</strong><span>Active incidents</span></div>
+            <div className="admin-stat admin-stat-info"><strong>{editorStats.activeMaintenance}</strong><span>Maintenance active</span></div>
+            <div className="admin-stat"><strong>{editorStats.retainedReports}</strong><span>Reports retained</span></div>
+            <p>Resolved incidents and completed maintenance are automatically deleted 30 days after their end time.</p>
+          </section>
           <section className="admin-section">
             <div className="admin-section-heading">
               <div>
@@ -658,7 +772,7 @@ export function AdminPage() {
 
           <EditorSection
             title="Incident reports"
-            description="Keep resolved reports so their dates remain visible in history. Use Risk level and Affected services to drive automatic status detection."
+            description="Resolved reports remain in history for 30 days, then are deleted automatically. Risk level and affected services drive status detection."
             actionLabel="Add incident"
             onAdd={() => addListItem('incidents', createEmptyIncident)}
           >
@@ -721,7 +835,17 @@ export function AdminPage() {
                       />
                     </div>
                     <div className="wide-field">
-                      <TextArea label="Customer message" value={incident.message} onChange={(value) => updateListItem('incidents', index, 'message', value)} />
+                      <TextArea label="Public summary" hint="A stable overview of the incident. Add chronological progress below." value={incident.message} onChange={(value) => updateListItem('incidents', index, 'message', value)} />
+                    </div>
+                    <div className="wide-field">
+                      <EventUpdatesEditor
+                        kind="incident"
+                        updates={incident.updates}
+                        currentStatus={incident.status}
+                        onAdd={() => addEventUpdate('incidents', index)}
+                        onChange={(updateIndex, field, value) => updateEventUpdate('incidents', index, updateIndex, field, value)}
+                        onRemove={(updateIndex) => removeEventUpdate('incidents', index, updateIndex)}
+                      />
                     </div>
                   </div>
                 </article>
@@ -731,7 +855,7 @@ export function AdminPage() {
 
           <EditorSection
             title="Maintenance reports"
-            description="Maintenance dates are applied automatically to every selected service’s history bar. Past reports can remain for historical detail."
+            description="Maintenance dates are applied to selected service history. Completed reports remain for 30 days, then are deleted automatically."
             actionLabel="Add maintenance"
             onAdd={() => addListItem('maintenance', createEmptyMaintenance)}
           >
@@ -761,7 +885,16 @@ export function AdminPage() {
                       />
                     </div>
                     <div className="wide-field">
-                      <TextArea label="Customer message" value={item.message} onChange={(value) => updateListItem('maintenance', index, 'message', value)} />
+                      <TextArea label="Public summary" hint="A stable overview of the maintenance. Add chronological progress below." value={item.message} onChange={(value) => updateListItem('maintenance', index, 'message', value)} />
+                    </div>
+                    <div className="wide-field">
+                      <EventUpdatesEditor
+                        kind="maintenance"
+                        updates={item.updates}
+                        onAdd={() => addEventUpdate('maintenance', index)}
+                        onChange={(updateIndex, field, value) => updateEventUpdate('maintenance', index, updateIndex, field, value)}
+                        onRemove={(updateIndex) => removeEventUpdate('maintenance', index, updateIndex)}
+                      />
                     </div>
                   </div>
                 </article>

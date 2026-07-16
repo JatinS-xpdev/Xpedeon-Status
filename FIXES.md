@@ -1,5 +1,25 @@
 # Xpedeon Status 0.4.0 — Change Summary
 
+## Timestamped report updates
+
+- Added dedicated chronological update logs to incidents and maintenance, separate from each report's stable public summary.
+- Admins can add, edit and remove update entries with an explicit publication time; incident updates also record the progress state.
+- The newest incident update automatically advances the report's `updatedAt` time.
+- Public incident, resolved-incident, maintenance and service-history views now show the update timeline.
+- Every displayed timestamp includes the viewer's local timezone and an explicit UTC standard-time reference.
+- Update messages and timestamps are normalized and validated, including protection against incident updates predating the incident.
+- Redesigned the service history control as a full-width visual button with a chart icon, affected-day summary, chevron state and clearer 30-day wording.
+
+## Automatic retention and UI cleanup
+
+- Resolved incidents and completed maintenance are permanently removed after 30 days; reports exactly on the boundary remain until they become older than 30 days.
+- Cleanup runs on status reads and saves, and persists the filtered configuration atomically.
+- Serialized configuration operations prevent cleanup reads from racing administrator saves within the server process.
+- Active incidents and active or future maintenance are never removed by retention cleanup.
+- Recently completed maintenance remains visible during the retention window with distinct Scheduled, In progress and Completed states.
+- Added a compact admin overview for service, active-report and retained-report counts.
+- Removed redundant timestamp sorting and object memoization work from public rendering.
+
 ## Per-incident resolved option
 
 - Added a prominent **Issue resolution** control to every incident card in the admin page.
@@ -94,6 +114,6 @@
 
 ## Verification
 
-- `npm test`: 24 passed, 0 failed.
+- `npm test`: 29 passed, 0 failed.
 - `npm run build`: completed successfully with Vite 6.4.3.
 - `npm audit`: 0 vulnerabilities in production and development dependencies.

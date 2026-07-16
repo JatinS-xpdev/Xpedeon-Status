@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { validateStatusConfig } from '../src/status.js';
+import { pruneExpiredReports, validateStatusConfig } from '../src/status.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,16 +76,25 @@ function getErrorPayload(message, error) {
 async function readStatusConfig(configFile) {
   const rawConfig = await readFile(configFile, 'utf8');
   const parsedConfig = JSON.parse(rawConfig);
+  const now = new Date();
+  const normalizedConfig = validateStatusConfig(parsedConfig);
+  const retainedConfig = pruneExpiredReports(normalizedConfig, now);
+  const removedReportCount = normalizedConfig.incidents.length + normalizedConfig.maintenance.length
+    - retainedConfig.incidents.length - retainedConfig.maintenance.length;
+
+  if (removedReportCount > 0) {
+    await persistStatusConfig(configFile, retainedConfig);
+  }
+
   return {
-    ...validateStatusConfig(parsedConfig),
-    generatedAt: new Date().toISOString()
+    ...retainedConfig,
+    generatedAt: now.toISOString()
   };
 }
 
-async function writeStatusConfig(configFile, config) {
-  const normalizedConfig = validateStatusConfig(config);
+async function persistStatusConfig(configFile, normalizedConfig) {
   const directory = path.dirname(configFile);
-  const tempFile = path.join(directory, `.status.config.${process.pid}.${Date.now()}.tmp`);
+  const tempFile = path.join(directory, `.status.config.${process.pid}.${crypto.randomUUID()}.tmp`);
 
   await mkdir(directory, { recursive: true });
   try {
@@ -99,10 +108,13 @@ async function writeStatusConfig(configFile, config) {
     throw error;
   }
 
-  return {
-    ...normalizedConfig,
-    generatedAt: new Date().toISOString()
-  };
+}
+
+async function writeStatusConfig(configFile, config) {
+  const now = new Date();
+  const normalizedConfig = pruneExpiredReports(validateStatusConfig(config), now);
+  await persistStatusConfig(configFile, normalizedConfig);
+  return { ...normalizedConfig, generatedAt: now.toISOString() };
 }
 
 function setSecurityHeaders(_request, response, next) {
@@ -152,6 +164,13 @@ export function createApp({
 } = {}) {
   const app = express();
   const attemptTracker = createLoginAttemptTracker();
+  let configOperation = Promise.resolve();
+
+  function runConfigOperation(operation) {
+    const result = configOperation.then(operation, operation);
+    configOperation = result.then(() => undefined, () => undefined);
+    return result;
+  }
 
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY === 'true') {
@@ -170,7 +189,7 @@ export function createApp({
 
   app.get('/api/status', async (_request, response) => {
     try {
-      response.json(await readStatusConfig(configFile));
+      response.json(await runConfigOperation(() => readStatusConfig(configFile)));
     } catch (error) {
       response.status(500).json(getErrorPayload('Unable to read status configuration.', error));
     }
@@ -189,7 +208,7 @@ export function createApp({
     }
 
     try {
-      const nextConfig = await writeStatusConfig(configFile, request.body?.config);
+      const nextConfig = await runConfigOperation(() => writeStatusConfig(configFile, request.body?.config));
       response.json(nextConfig);
     } catch (error) {
       response.status(400).json(getErrorPayload('Unable to save status configuration.', error));

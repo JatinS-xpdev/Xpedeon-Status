@@ -13,10 +13,12 @@ import {
   getIncidentDerivedStatus,
   getRecentDateKeys,
   getResolvedIncidents,
+  getVisibleMaintenance,
   getWorstServiceStatus,
   isIncidentResolved,
   normalizeServiceStatus,
   normalizeStatusConfig,
+  pruneExpiredReports,
   resolveIncident,
   STATUS_META,
   summarizeServices,
@@ -121,8 +123,8 @@ test('automatically overlays incidents and maintenance on affected service histo
     {
       id: 'maintenance-1',
       title: 'Database work',
-      scheduledFor: '2026-07-09T20:00:00.000Z',
-      endsAt: '2026-07-10T02:00:00.000Z',
+      scheduledFor: new Date(2026, 6, 9, 20, 0).toISOString(),
+      endsAt: new Date(2026, 6, 10, 2, 0).toISOString(),
       duration: '6 hours',
       affectsAllServices: false,
       affectedServiceIds: ['service-web'],
@@ -337,6 +339,94 @@ test('normalization makes an explicit resolution date authoritative', () => {
 
   assert.equal(normalized.incidents[0].status, 'Resolved');
   assert.equal(normalized.incidents[0].updatedAt, '2026-07-09T10:00:00.000Z');
+});
+
+test('prunes only reports whose end time is more than 30 days old', () => {
+  const at = new Date('2026-07-31T12:00:00.000Z');
+  const cutoff = '2026-07-01T12:00:00.000Z';
+  const config = {
+    ...baseConfig(),
+    incidents: [
+      { id: 'old', status: 'Resolved', updatedAt: '2026-06-30T11:59:59.000Z', resolvedAt: '2026-06-30T11:59:59.000Z' },
+      { id: 'boundary', status: 'Resolved', updatedAt: cutoff, resolvedAt: cutoff },
+      { id: 'active', status: 'Investigating', startedAt: '2026-05-01T00:00:00.000Z', updatedAt: '2026-07-31T10:00:00.000Z' }
+    ],
+    maintenance: [
+      { id: 'old-work', scheduledFor: '2026-06-30T10:00:00.000Z', endsAt: '2026-06-30T11:00:00.000Z' },
+      { id: 'boundary-work', scheduledFor: '2026-07-01T11:00:00.000Z', endsAt: cutoff },
+      { id: 'future-work', scheduledFor: '2026-08-01T10:00:00.000Z', endsAt: '2026-08-01T11:00:00.000Z' }
+    ]
+  };
+
+  const retained = pruneExpiredReports(config, at);
+  assert.deepEqual(retained.incidents.map((item) => item.id), ['boundary', 'active']);
+  assert.deepEqual(retained.maintenance.map((item) => item.id), ['boundary-work', 'future-work']);
+});
+
+test('shows recently completed maintenance alongside current and scheduled work', () => {
+  const at = new Date('2026-07-31T12:00:00.000Z');
+  const visible = getVisibleMaintenance([
+    { id: 'old', scheduledFor: '2026-06-20T10:00:00.000Z', endsAt: '2026-06-20T11:00:00.000Z' },
+    { id: 'recent', scheduledFor: '2026-07-30T10:00:00.000Z', endsAt: '2026-07-30T11:00:00.000Z' },
+    { id: 'active', scheduledFor: '2026-07-31T11:00:00.000Z', endsAt: '2026-07-31T13:00:00.000Z' },
+    { id: 'future', scheduledFor: '2026-08-01T10:00:00.000Z', endsAt: '2026-08-01T11:00:00.000Z' }
+  ], at);
+
+  assert.deepEqual(visible.map((item) => item.id), ['active', 'future', 'recent']);
+});
+
+test('normalizes timestamped incident and maintenance updates in chronological order', () => {
+  const normalized = normalizeStatusConfig({
+    ...baseConfig(),
+    incidents: [{
+      id: 'incident-updates',
+      title: 'API issue',
+      status: 'Investigating',
+      riskLevel: 'minor',
+      startedAt: '2026-07-09T09:00:00.000Z',
+      updatedAt: '2026-07-09T09:00:00.000Z',
+      affectsAllServices: true,
+      affectedServiceIds: [],
+      message: 'API requests are delayed.',
+      updates: [
+        { message: 'Recovery is being monitored.', status: 'Monitoring', createdAt: '2026-07-09T10:00:00.000Z' },
+        { message: 'The cause was identified.', status: 'Identified', createdAt: '2026-07-09T09:30:00.000Z' }
+      ]
+    }],
+    maintenance: [{
+      id: 'maintenance-updates',
+      title: 'Database work',
+      scheduledFor: '2026-07-10T10:00:00.000Z',
+      endsAt: '2026-07-10T11:00:00.000Z',
+      affectsAllServices: true,
+      affectedServiceIds: [],
+      message: 'Planned database work.',
+      updates: [{ message: 'Work has started.', createdAt: '2026-07-10T10:05:00.000Z' }]
+    }]
+  });
+
+  assert.deepEqual(normalized.incidents[0].updates.map((update) => update.status), ['Identified', 'Monitoring']);
+  assert.equal(normalized.incidents[0].updatedAt, '2026-07-09T10:00:00.000Z');
+  assert.equal(normalized.maintenance[0].updates[0].message, 'Work has started.');
+  assert.ok(normalized.incidents[0].updates.every((update) => update.id));
+});
+
+test('validation rejects incident updates that predate the incident', () => {
+  const config = baseConfig();
+  config.incidents = [{
+    id: 'incident-bad-update',
+    title: 'API issue',
+    status: 'Investigating',
+    riskLevel: 'minor',
+    startedAt: '2026-07-09T09:00:00.000Z',
+    updatedAt: '2026-07-09T09:00:00.000Z',
+    affectsAllServices: true,
+    affectedServiceIds: [],
+    message: 'API requests are delayed.',
+    updates: [{ message: 'Impossible early update.', status: 'Investigating', createdAt: '2026-07-09T08:59:00.000Z' }]
+  }];
+
+  assert.throws(() => validateStatusConfig(config), /cannot be before its start time/);
 });
 
 test('summarizes services without overwriting counts', () => {
