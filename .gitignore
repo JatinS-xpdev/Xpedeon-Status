@@ -4,3 +4,4 @@ dist/
 .env.local
 npm-debug.log*
 status.config.json
+status.config.json
