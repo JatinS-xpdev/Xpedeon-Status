@@ -243,39 +243,38 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
             <i /><i /><i /><i /><i />
           </span>
           <span className="history-toggle-copy">
-            <strong>{isOpen ? `Close ${historyDays}-day history` : `View ${historyDays}-day history`}</strong>
+            <strong>{historyDays}-day uptime</strong>
             <small>{eventDayCount ? `${eventDayCount} affected day${eventDayCount === 1 ? '' : 's'}` : 'No reported events'}</small>
           </span>
-          <span className="history-toggle-chevron" aria-hidden="true">⌄</span>
+          <span className="history-toggle-action">{isOpen ? 'Close details' : 'View details'}</span>
         </button>
       </div>
 
-      {isOpen ? (
-        <>
-          <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
-            {timeline.map((entry) => (
-              <button
-                type="button"
-                className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date ? ' is-selected' : ''}`}
-                key={entry.date}
-                title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
-                aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
-                aria-pressed={selected?.date === entry.date}
-                aria-current={entry.isToday ? 'date' : undefined}
-                aria-controls={detailId}
-                aria-expanded={selected?.date === entry.date}
-                onClick={() => {
-                  setSelectedDate(entry.date);
-                  setPinned((current) => selected?.date === entry.date ? !current : true);
-                }}
-              >
-                <span className="uptime-day">{entry.date.slice(8)}</span>
-                {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
-              </button>
-            ))}
-          </div>
+      <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
+        {timeline.map((entry) => (
+          <button
+            type="button"
+            className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date && isOpen ? ' is-selected' : ''}`}
+            key={entry.date}
+            title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
+            aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
+            aria-pressed={selected?.date === entry.date && isOpen}
+            aria-current={entry.isToday ? 'date' : undefined}
+            aria-controls={detailId}
+            aria-expanded={selected?.date === entry.date && isOpen}
+            onClick={() => {
+              setSelectedDate(entry.date);
+              setIsOpen(true);
+              setPinned(true);
+            }}
+          >
+            <span className="uptime-day">{entry.date.slice(8)}</span>
+            {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
+          </button>
+        ))}
+      </div>
 
-          {selected ? (
+      {isOpen && selected ? (
             <section id={detailId} className="history-detail" aria-live="polite" aria-label={`History details for ${service.name} on ${selected.date}`}>
               <div className="history-detail-heading">
                 <div>
@@ -306,8 +305,6 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
                 </div>
               )}
             </section>
-          ) : null}
-        </>
       ) : null}
     </div>
   );
@@ -347,7 +344,7 @@ function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
           <h2 id="service-board-title">Services</h2>
           <p>
             {visibleHistoryCount
-              ? 'History ranges are configured per service. Open a history panel, then select a date for details.'
+              ? 'Daily uptime is shown for each service. Select any day to inspect its incident and maintenance details.'
               : 'Current availability is shown for each configured service.'}
           </p>
         </div>
