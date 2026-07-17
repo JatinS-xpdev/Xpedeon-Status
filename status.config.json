@@ -56,12 +56,44 @@
       "impact": "",
       "riskLevel": "major",
       "startedAt": "2026-07-10T11:10:00.000Z",
-      "updatedAt": "2026-07-16T04:40:10.817Z",
+      "updatedAt": "2026-07-17T10:08:39.074Z",
       "resolvedAt": "2026-07-16T04:40:10.817Z",
       "affectsAllServices": true,
       "affectedServiceIds": [],
       "message": "MSS",
       "updates": []
+    },
+    {
+      "id": "incident-98e2314e-f0c1-404c-ae3c-12c8c9f1574a",
+      "title": "Github Sync",
+      "status": "Monitoring",
+      "impact": "API calls",
+      "riskLevel": "minor",
+      "startedAt": "2026-07-17T10:22:19.961Z",
+      "updatedAt": "2026-07-17T11:25:00.000Z",
+      "resolvedAt": "",
+      "affectsAllServices": false,
+      "affectedServiceIds": [
+        "service-application-api",
+        "service-integration-services"
+      ],
+      "message": "Experiencing slowdowns",
+      "updates": [
+        {
+          "id": "update-918d2f7d-880d-49fe-9f5f-0d7d2fe487ee",
+          "status": "Monitoring",
+          "riskLevel": "major",
+          "message": "Proper lookout, risk increase",
+          "createdAt": "2026-07-17T11:23:00.000Z"
+        },
+        {
+          "id": "update-0b680595-c65e-426a-99ac-7ccb17621ae9",
+          "status": "Monitoring",
+          "riskLevel": "minor",
+          "message": "Risk stabilised",
+          "createdAt": "2026-07-17T11:25:00.000Z"
+        }
+      ]
     }
   ],
   "maintenance": [

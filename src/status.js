@@ -722,23 +722,27 @@ export function createEmptyMaintenance() {
   };
 }
 
-export function createEventUpdate({ status = '', at = new Date() } = {}) {
+export function createEventUpdate({ status = '', riskLevel = '', at = new Date() } = {}) {
   const requestedDate = at instanceof Date ? at : new Date(at);
   const createdAt = (Number.isNaN(requestedDate.getTime()) ? new Date() : requestedDate).toISOString();
+  const normalizedRiskLevel = typeof riskLevel === 'string' ? riskLevel.trim().toLowerCase() : '';
   return {
     id: createRuntimeId('update'),
     status: cleanString(status),
+    ...(RISK_LEVEL_SET.has(normalizedRiskLevel) ? { riskLevel: normalizedRiskLevel } : {}),
     message: '',
     createdAt
   };
 }
 
-function normalizeUpdates(updates, fallbackStatus = '') {
+function normalizeUpdates(updates, fallbackStatus = '', fallbackRiskLevel = '') {
   const usedIds = new Set();
+  const includeRiskLevel = RISK_LEVEL_SET.has(fallbackRiskLevel);
   return (Array.isArray(updates) ? updates : [])
     .map((update = {}, index) => ({
       id: createStableId('update', update.id, update.message, index, usedIds),
       status: cleanString(update.status, fallbackStatus),
+      ...(includeRiskLevel ? { riskLevel: normalizeRiskLevel(update.riskLevel, fallbackRiskLevel) } : {}),
       message: cleanString(update.message),
       createdAt: normalizeDateTime(update.createdAt, '')
     }))
@@ -802,7 +806,8 @@ function normalizeIncidents(incidents, services) {
     const startedAt = normalizeDateTime(incident.startedAt, rawUpdatedAt);
     const explicitResolvedAt = normalizeDateTime(incident.resolvedAt, '');
     const resolvedAt = explicitResolvedAt || (RESOLVED_STATUS_PATTERN.test(rawStatus) ? rawUpdatedAt : '');
-    const updates = normalizeUpdates(incident.updates, rawStatus);
+    const riskLevel = normalizeRiskLevel(incident.riskLevel);
+    const updates = normalizeUpdates(incident.updates, rawStatus, riskLevel);
     const latestUpdateAt = updates.at(-1)?.createdAt;
     const effectiveUpdatedAt = latestUpdateAt && new Date(latestUpdateAt) > new Date(rawUpdatedAt)
       ? latestUpdateAt
@@ -817,7 +822,7 @@ function normalizeIncidents(incidents, services) {
       title: cleanString(incident.title),
       status,
       impact: cleanString(incident.impact),
-      riskLevel: normalizeRiskLevel(incident.riskLevel),
+      riskLevel,
       startedAt,
       updatedAt,
       resolvedAt,
@@ -925,6 +930,15 @@ export function validateStatusConfig(config = {}) {
     if (!RISK_LEVEL_SET.has(rawRiskLevel)) {
       throw new Error(`Incident ${index + 1} has an unsupported risk level`);
     }
+    (Array.isArray(incident?.updates) ? incident.updates : []).forEach((update, updateIndex) => {
+      if (update?.riskLevel === undefined) {
+        return;
+      }
+      const updateRiskLevel = typeof update.riskLevel === 'string' ? update.riskLevel.trim().toLowerCase() : '';
+      if (!RISK_LEVEL_SET.has(updateRiskLevel)) {
+        throw new Error(`Incident ${index + 1} update ${updateIndex + 1} has an unsupported risk level`);
+      }
+    });
   });
 
   const normalized = normalizeStatusConfig(config);

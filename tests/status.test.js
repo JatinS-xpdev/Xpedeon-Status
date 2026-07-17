@@ -414,8 +414,8 @@ test('normalizes timestamped incident and maintenance updates in chronological o
       affectedServiceIds: [],
       message: 'API requests are delayed.',
       updates: [
-        { message: 'Recovery is being monitored.', status: 'Monitoring', createdAt: '2026-07-09T10:00:00.000Z' },
-        { message: 'The cause was identified.', status: 'Identified', createdAt: '2026-07-09T09:30:00.000Z' }
+        { message: 'Recovery is being monitored.', status: 'Monitoring', riskLevel: 'critical', createdAt: '2026-07-09T10:00:00.000Z' },
+        { message: 'The cause was identified.', status: 'Identified', riskLevel: 'major', createdAt: '2026-07-09T09:30:00.000Z' }
       ]
     }],
     maintenance: [{
@@ -431,6 +431,7 @@ test('normalizes timestamped incident and maintenance updates in chronological o
   });
 
   assert.deepEqual(normalized.incidents[0].updates.map((update) => update.status), ['Identified', 'Monitoring']);
+  assert.deepEqual(normalized.incidents[0].updates.map((update) => update.riskLevel), ['major', 'critical']);
   assert.equal(normalized.incidents[0].updatedAt, '2026-07-09T10:00:00.000Z');
   assert.equal(normalized.maintenance[0].updates[0].message, 'Work has started.');
   assert.ok(normalized.incidents[0].updates.every((update) => update.id));
@@ -452,6 +453,30 @@ test('validation rejects incident updates that predate the incident', () => {
   }];
 
   assert.throws(() => validateStatusConfig(config), /cannot be before its start time/);
+});
+
+test('validation rejects unsupported incident update risk levels', () => {
+  const config = baseConfig();
+  config.incidents = [{
+    id: 'incident-bad-update-risk',
+    title: 'API issue',
+    status: 'Investigating',
+    riskLevel: 'minor',
+    startedAt: '2026-07-09T09:00:00.000Z',
+    updatedAt: '2026-07-09T09:30:00.000Z',
+    resolvedAt: '',
+    affectsAllServices: true,
+    affectedServiceIds: [],
+    message: 'API requests are delayed.',
+    updates: [{
+      message: 'Impact changed.',
+      status: 'Identified',
+      riskLevel: 'severe',
+      createdAt: '2026-07-09T09:30:00.000Z'
+    }]
+  }];
+
+  assert.throws(() => validateStatusConfig(config), /update 1 has an unsupported risk level/);
 });
 
 test('summarizes services without overwriting counts', () => {

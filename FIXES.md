@@ -2,6 +2,7 @@
 
 ## Timestamped report updates
 
+- Incident updates can now change risk level; the newest update drives the public incident badge and automatic service impact, and each public update displays its recorded risk.
 - Added dedicated chronological update logs to incidents and maintenance, separate from each report's stable public summary.
 - Admins can add, edit and remove update entries with an explicit publication time; incident updates also record the progress state.
 - The newest incident update automatically advances the report's `updatedAt` time.
@@ -95,6 +96,7 @@
 
 ## Public-page UI
 
+- Standardized the service-status column and pill width so history controls remain aligned when a service shows the longer Degraded Performance label.
 - Service cards now respect their own history visibility and day range while retaining a balanced current-status-only layout when history is hidden.
 - Reworked the service board around expandable, date-level history.
 - Added a Recently Resolved incident panel with resolution timestamps and affected-service details.
@@ -106,7 +108,7 @@
 
 ## Server and project cleanup
 
-- Development mode now reloads the API when its server or shared status schema changes, and the admin editor detects outdated servers that discard history preferences.
+- Development mode now reloads the API when its server or shared status schema changes, and the admin editor detects outdated servers that discard newer configuration fields.
 - Added shared normalization and validation used by the UI and API.
 - Added `/api/health` and API integration tests.
 - Added failed-login throttling and timing-safe password comparison.

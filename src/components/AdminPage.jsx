@@ -35,18 +35,32 @@ function removeGeneratedFields(config) {
   return editableConfig;
 }
 
-function historyPreferencesWereSaved(requestedConfig, savedConfig) {
+function extendedConfigurationWasSaved(requestedConfig, savedConfig) {
   const savedServices = new Map(
     (Array.isArray(savedConfig?.services) ? savedConfig.services : [])
       .map((service) => [service.id, service])
   );
-
-  return requestedConfig.services.every((requestedService) => {
+  const servicePreferencesSaved = requestedConfig.services.every((requestedService) => {
     const savedService = savedServices.get(requestedService.id);
     return savedService
       && savedService.showHistory === requestedService.showHistory
       && savedService.historyDays === requestedService.historyDays;
   });
+
+  const savedIncidents = new Map(
+    (Array.isArray(savedConfig?.incidents) ? savedConfig.incidents : [])
+      .map((incident) => [incident.id, incident])
+  );
+  const updateRiskLevelsSaved = requestedConfig.incidents.every((requestedIncident) => {
+    const savedUpdates = new Map(
+      (savedIncidents.get(requestedIncident.id)?.updates || []).map((update) => [update.id, update])
+    );
+    return requestedIncident.updates.every((requestedUpdate) => (
+      savedUpdates.get(requestedUpdate.id)?.riskLevel === requestedUpdate.riskLevel
+    ));
+  });
+
+  return servicePreferencesSaved && updateRiskLevelsSaved;
 }
 
 function Field({ label, hint, children, className = '' }) {
@@ -117,7 +131,7 @@ function NumberInput({ label, value, onChange, hint, min, max }) {
   );
 }
 
-function EventUpdatesEditor({ kind, updates, currentStatus, onAdd, onChange, onRemove }) {
+function EventUpdatesEditor({ kind, updates, currentStatus, currentRiskLevel, onAdd, onChange, onRemove }) {
   const items = Array.isArray(updates) ? updates : [];
   const isIncident = kind === 'incident';
 
@@ -126,7 +140,7 @@ function EventUpdatesEditor({ kind, updates, currentStatus, onAdd, onChange, onR
       <div className="event-updates-heading">
         <div>
           <h4>Timestamped updates</h4>
-          <p>Add progress updates here. The public summary above remains separate and is not overwritten.</p>
+          <p>Add progress updates here. Incident status and risk from the newest update are reflected on the public page.</p>
         </div>
         <button className="secondary-button" type="button" onClick={onAdd}>Add update</button>
       </div>
@@ -138,11 +152,17 @@ function EventUpdatesEditor({ kind, updates, currentStatus, onAdd, onChange, onR
                 <strong>Update {index + 1}</strong>
                 <button className="danger-button" type="button" onClick={() => onRemove(index)}>Remove</button>
               </div>
-              <div className="form-grid">
+              <div className={`form-grid${isIncident ? ' event-update-fields' : ''}`}>
                 {isIncident ? (
                   <IncidentProgressSelect
                     value={update.status || currentStatus}
                     onChange={(value) => onChange(index, 'status', value)}
+                  />
+                ) : null}
+                {isIncident ? (
+                  <RiskLevelSelect
+                    value={update.riskLevel || currentRiskLevel}
+                    onChange={(value) => onChange(index, 'riskLevel', value)}
                   />
                 ) : null}
                 <DateTimeInput label="Published at" value={update.createdAt} onChange={(value) => onChange(index, 'createdAt', value)} />
@@ -532,7 +552,10 @@ export function AdminPage() {
       ...current,
       [listName]: current[listName].map((item, itemIndex) => {
         if (itemIndex !== index) return item;
-        const update = createEventUpdate({ status: listName === 'incidents' ? item.status : '' });
+        const update = createEventUpdate({
+          status: listName === 'incidents' ? item.status : '',
+          riskLevel: listName === 'incidents' ? item.riskLevel : ''
+        });
         return {
           ...item,
           updatedAt: listName === 'incidents' ? update.createdAt : item.updatedAt,
@@ -550,11 +573,16 @@ export function AdminPage() {
         const updates = (item.updates || []).map((update, index) => (
           index === updateIndex ? { ...update, [field]: value } : update
         ));
-        const changedUpdate = updates[updateIndex];
+        const latestUpdate = listName === 'incidents'
+          ? updates.reduce((latest, update) => (
+            !latest || new Date(update.createdAt) > new Date(latest.createdAt) ? update : latest
+          ), null)
+          : null;
         return {
           ...item,
-          status: listName === 'incidents' && field === 'status' ? value : item.status,
-          updatedAt: listName === 'incidents' && changedUpdate?.createdAt ? changedUpdate.createdAt : item.updatedAt,
+          status: latestUpdate?.status || item.status,
+          riskLevel: latestUpdate?.riskLevel || item.riskLevel,
+          updatedAt: latestUpdate?.createdAt || item.updatedAt,
           updates
         };
       })
@@ -564,11 +592,22 @@ export function AdminPage() {
   function removeEventUpdate(listName, itemIndex, updateIndex) {
     changeConfig((current) => ({
       ...current,
-      [listName]: current[listName].map((item, index) => (
-        index === itemIndex
-          ? { ...item, updates: (item.updates || []).filter((_update, index) => index !== updateIndex) }
-          : item
-      ))
+      [listName]: current[listName].map((item, index) => {
+        if (index !== itemIndex) return item;
+        const updates = (item.updates || []).filter((_update, index) => index !== updateIndex);
+        const latestUpdate = listName === 'incidents'
+          ? updates.reduce((latest, update) => (
+            !latest || new Date(update.createdAt) > new Date(latest.createdAt) ? update : latest
+          ), null)
+          : null;
+        return {
+          ...item,
+          status: latestUpdate?.status || item.status,
+          riskLevel: latestUpdate?.riskLevel || item.riskLevel,
+          updatedAt: latestUpdate?.createdAt || item.updatedAt,
+          updates
+        };
+      })
     }));
   }
 
@@ -692,8 +731,8 @@ export function AdminPage() {
     try {
       const normalizedConfig = validateStatusConfig(config);
       const savedConfig = await saveStatus(normalizedConfig, password);
-      if (!historyPreferencesWereSaved(normalizedConfig, savedConfig)) {
-        throw new Error('The running API is out of date and did not save the service history settings. Restart the development server, then save again.');
+      if (!extendedConfigurationWasSaved(normalizedConfig, savedConfig)) {
+        throw new Error('The running API is out of date and did not save all configuration fields. Restart the development server, then save again.');
       }
       setConfig(removeGeneratedFields(savedConfig));
       setDirty(false);
@@ -957,6 +996,7 @@ export function AdminPage() {
                         kind="incident"
                         updates={incident.updates}
                         currentStatus={incident.status}
+                        currentRiskLevel={incident.riskLevel}
                         onAdd={() => addEventUpdate('incidents', index)}
                         onChange={(updateIndex, field, value) => updateEventUpdate('incidents', index, updateIndex, field, value)}
                         onRemove={(updateIndex) => removeEventUpdate('incidents', index, updateIndex)}

@@ -390,7 +390,7 @@ button:disabled {
 
 .service-row {
   display: grid;
-  grid-template-columns: minmax(190px, 0.85fr) minmax(390px, 1.65fr) auto;
+  grid-template-columns: minmax(190px, 0.85fr) minmax(390px, 1.65fr) 184px;
   grid-template-areas: "copy history state";
   gap: 18px;
   align-items: center;
@@ -424,6 +424,9 @@ button:disabled {
 .service-row > .pill {
   grid-area: state;
   justify-self: end;
+  justify-content: center;
+  width: 184px;
+  white-space: nowrap;
 }
 
 .service-row-without-history {
@@ -1237,10 +1240,28 @@ select:focus {
 
 .event-update-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
+
+.event-update-labels {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.update-risk-badge {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 0.64rem;
+  font-weight: 850;
+}
+
+.update-risk-badge-warn { color: var(--warn); background: var(--warn-soft); }
+.update-risk-badge-bad { color: var(--bad); background: var(--bad-soft); }
 
 .event-update-meta strong { font-size: 0.78rem; }
 .event-update-meta time { color: var(--muted); font-size: 0.7rem; font-weight: 700; text-align: right; }
@@ -1268,6 +1289,10 @@ select:focus {
 .event-update-number { margin-bottom: 10px; }
 .event-update-number .danger-button { min-height: 32px; padding: 6px 10px; font-size: 0.74rem; }
 .event-updates-empty { margin: 12px 0 0; padding: 12px; }
+
+.event-update-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 
 .history-baseline {
   display: flex;

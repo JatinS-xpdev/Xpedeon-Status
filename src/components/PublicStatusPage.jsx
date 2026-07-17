@@ -114,6 +114,11 @@ function StatusPill({ status, compact = false }) {
   );
 }
 
+function UpdateRiskBadge({ riskLevel }) {
+  const risk = RISK_LEVEL_META[riskLevel] ?? RISK_LEVEL_META.minor;
+  return <span className={`update-risk-badge update-risk-badge-${risk.tone}`}>{risk.label} risk</span>;
+}
+
 function EventUpdateLog({ updates, type = 'event' }) {
   // Updates are normalized oldest-first, so reversing avoids reparsing every
   // timestamp during each render.
@@ -127,7 +132,10 @@ function EventUpdateLog({ updates, type = 'event' }) {
         {items.map((update) => (
           <li key={update.id}>
             <div className="event-update-meta">
-              {update.status ? <strong>{update.status}</strong> : <strong>Progress update</strong>}
+              <div className="event-update-labels">
+                {update.status ? <strong>{update.status}</strong> : <strong>Progress update</strong>}
+                {type === 'incident' && update.riskLevel ? <UpdateRiskBadge riskLevel={update.riskLevel} /> : null}
+              </div>
               <time dateTime={update.createdAt}>{formatDateTime(update.createdAt)}</time>
             </div>
             <p>{update.message}</p>

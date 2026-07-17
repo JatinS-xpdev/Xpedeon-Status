@@ -222,6 +222,7 @@ Supported service statuses:
     {
       "id": "update-capacity-adjustment",
       "status": "Monitoring",
+      "riskLevel": "minor",
       "message": "The team is monitoring recovery after a capacity adjustment.",
       "createdAt": "2026-07-10T08:20:00.000Z"
     }
@@ -236,6 +237,8 @@ Supported risk levels:
 - `critical`
 
 Set `resolvedAt` when the incident ends. The admin resolution control sets `status`, `updatedAt` and `resolvedAt` together. An explicit `resolvedAt` is authoritative and normalizes the progress status to `Resolved`. For compatibility with old data, statuses containing `resolved`, `closed`, `completed` or `fixed` infer the resolution time from `updatedAt` when `resolvedAt` is absent.
+
+Incident updates carry both a progress status and risk level. In the admin editor, the newest timestamped update changes the incident's current risk level, public risk badge and affected services' automatically derived status.
 
 ### Maintenance report
 
