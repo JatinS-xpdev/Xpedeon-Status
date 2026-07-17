@@ -819,6 +819,44 @@ select:focus {
   margin: 22px 0 18px;
 }
 
+.password-input-shell {
+  position: relative;
+  display: block;
+}
+
+.password-input-shell input {
+  padding-right: 76px;
+}
+
+.password-visibility-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  min-width: 58px;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 0.78rem;
+  font-weight: 800;
+  transform: translateY(-50%);
+}
+
+.password-visibility-button:hover {
+  background: color-mix(in srgb, var(--brand-soft) 76%, var(--brand));
+}
+
+.login-card .login-password-help {
+  margin: -4px 0 0;
+  font-size: 0.82rem;
+}
+
+.login-password-help code {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
 .back-link {
   display: inline-flex;
   margin-top: 6px;

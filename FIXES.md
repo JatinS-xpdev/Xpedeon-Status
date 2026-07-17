@@ -79,6 +79,7 @@
 
 ## Administration UX
 
+- Added a show/hide control to the administrator password field and concise guidance explaining where the server password is changed.
 - Added explicit incident start, update and resolved fields.
 - Added a per-incident resolution control with clear live-status consequences.
 - Added maintenance start/end fields and calculated duration.

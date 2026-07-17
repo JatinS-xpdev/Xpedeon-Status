@@ -376,6 +376,7 @@ function CardStatus({ status, label }) {
 export function AdminPage() {
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [config, setConfig] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -645,6 +646,7 @@ export function AdminPage() {
     }
     setAuthenticated(false);
     setPassword('');
+    setShowPassword(false);
     setConfig(null);
     setError('');
     setMessage('Signed out.');
@@ -660,15 +662,29 @@ export function AdminPage() {
           <p>Enter the administrator password configured on the server.</p>
           <form className="login-form" onSubmit={handleLogin}>
             <Field label="Admin password">
-              <input
-                autoFocus
-                required
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+              <span className="password-input-shell">
+                <input
+                  autoFocus
+                  required
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                <button
+                  className="password-visibility-button"
+                  type="button"
+                  aria-label={showPassword ? 'Hide administrator password' : 'Show administrator password'}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((current) => !current)}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </span>
             </Field>
+            <p className="login-password-help">
+              To change this password, update <code>STATUS_ADMIN_PASSWORD</code> on the server and restart it.
+            </p>
             {error ? <Notice tone="error">{error}</Notice> : null}
             {message ? <Notice tone="success">{message}</Notice> : null}
             <button className="primary-button" type="submit" disabled={loggingIn}>

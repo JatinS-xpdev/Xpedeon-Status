@@ -480,6 +480,7 @@ function MaintenanceList({ maintenance, services, referenceTime }) {
 
 export function PublicStatusPage({ statusData, onRefresh, refreshing = false, refreshError = '' }) {
   const { page = {}, services = [], incidents = [], maintenance = [], generatedAt } = statusData;
+  const supportHref = safeMailto(page.supportEmail);
   const referenceTime = useMemo(() => {
     const generatedDate = new Date(generatedAt);
     return Number.isNaN(generatedDate.getTime()) ? new Date() : generatedDate;
@@ -532,8 +533,8 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
 
       <footer className="footer">
         <span>Need help?</span>
-        {safeMailto(page.supportEmail)
-          ? <a href={safeMailto(page.supportEmail)}>{page.supportEmail}</a>
+        {supportHref
+          ? <a href={supportHref}>{page.supportEmail}</a>
           : <span>{page.supportEmail || 'Contact support'}</span>}
       </footer>
     </main>
