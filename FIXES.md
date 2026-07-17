@@ -1,5 +1,18 @@
 # Xpedeon Status 0.4.0 — Change Summary
 
+## Initial palette restoration
+
+- Restored the original main-branch purple, slate, green, amber, blue and red color tokens across the redesigned interface.
+- Reused the initial build's purple gradient treatment for brand accents, focus states, buttons and section highlights.
+- Kept the newer information architecture and all existing functionality while removing the later experimental color palette.
+- Removed the inherited space below the full-width public footer so its background now finishes cleanly at the viewport edge.
+
+## Twilio Status-inspired interface overhaul
+
+- Reworked the current interface around Twilio Status's broad dashboard structure, responsive navigation and light application background.
+- Presented services as responsive status cards with always-visible uptime, while retaining every configurable history, incident, maintenance and date-detail interaction.
+- Updated public navigation, alerts, report panels, footer, login and administration surfaces to use one cohesive dashboard system.
+
 ## Claude Status-inspired interface overhaul
 
 - Rebuilt the public page around a narrow editorial layout, black-led typography, flat white surfaces and restrained borders while retaining Xpedeon's purple accent and semantic status colors.

@@ -29,7 +29,9 @@ function Nav({ supportEmail, onRefresh, refreshing }) {
         <span>Xpedeon</span>
       </a>
       <div>
-        <a href="/">Status</a>
+        <a href="#services">Current status</a>
+        <a href="#maintenance">Maintenance</a>
+        <a href="#active-incidents">Incidents</a>
         <a href="/admin">Admin</a>
         {supportHref ? <a href={supportHref}>Support</a> : null}
         {onRefresh ? (
@@ -338,7 +340,7 @@ function ServiceRow({ service, incidents, maintenance, referenceTime }) {
 function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
   const visibleHistoryCount = services.filter((service) => service.showHistory !== false).length;
   return (
-    <section className="status-board" aria-labelledby="service-board-title">
+    <section className="status-board" id="services" aria-labelledby="service-board-title">
       <div className="board-heading">
         <div>
           <h2 id="service-board-title">Services</h2>
@@ -454,7 +456,7 @@ function ResolvedIncidentList({ incidents, services }) {
 
 function MaintenanceList({ maintenance, services, referenceTime }) {
   return (
-    <section className="panel" aria-labelledby="scheduled-maintenance-title">
+    <section className="panel" id="maintenance" aria-labelledby="scheduled-maintenance-title">
       <div className="section-heading">
         <div>
           <h2 id="scheduled-maintenance-title">Maintenance</h2>
