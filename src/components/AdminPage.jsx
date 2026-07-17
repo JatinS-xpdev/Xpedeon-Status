@@ -7,6 +7,7 @@ import {
   createIncidentFollowUp,
   createEmptyMaintenance,
   createEmptyService,
+  DEFAULT_HISTORY_DAYS,
   formatDateTime,
   formatDuration,
   fromDateTimeInputValue,
@@ -14,6 +15,8 @@ import {
   getIncidentDerivedStatus,
   isMaintenanceActiveAt,
   isIncidentResolved,
+  MAX_HISTORY_DAYS,
+  MIN_HISTORY_DAYS,
   normalizeStatusConfig,
   RISK_LEVEL_META,
   RISK_LEVELS,
@@ -30,6 +33,20 @@ const INCIDENT_PROGRESS_STATUSES = Object.freeze(['Investigating', 'Identified',
 function removeGeneratedFields(config) {
   const { generatedAt: _generatedAt, ...editableConfig } = normalizeStatusConfig(config);
   return editableConfig;
+}
+
+function historyPreferencesWereSaved(requestedConfig, savedConfig) {
+  const savedServices = new Map(
+    (Array.isArray(savedConfig?.services) ? savedConfig.services : [])
+      .map((service) => [service.id, service])
+  );
+
+  return requestedConfig.services.every((requestedService) => {
+    const savedService = savedServices.get(requestedService.id);
+    return savedService
+      && savedService.showHistory === requestedService.showHistory
+      && savedService.historyDays === requestedService.historyDays;
+  });
 }
 
 function Field({ label, hint, children, className = '' }) {
@@ -78,6 +95,23 @@ function DateTimeInput({ label, value, onChange, hint, required = true }) {
         type="datetime-local"
         value={toDateTimeInputValue(value)}
         onChange={(event) => onChange(fromDateTimeInputValue(event.target.value))}
+      />
+    </Field>
+  );
+}
+
+function NumberInput({ label, value, onChange, hint, min, max }) {
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        required
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step="1"
+        value={value}
+        onChange={(event) => onChange(event.target.value === '' ? '' : Number(event.target.value))}
       />
     </Field>
   );
@@ -271,9 +305,13 @@ function AffectedServicesField({ services, affectsAllServices, affectedServiceId
 }
 
 function HistoryCalendar({ service, incidents, maintenance, onChange }) {
+  const historyDays = Math.min(
+    MAX_HISTORY_DAYS,
+    Math.max(MIN_HISTORY_DAYS, Number.isInteger(service.historyDays) ? service.historyDays : DEFAULT_HISTORY_DAYS)
+  );
   const timeline = useMemo(
-    () => buildServiceTimeline(service, incidents, maintenance, 30),
-    [service, incidents, maintenance]
+    () => buildServiceTimeline(service, incidents, maintenance, historyDays),
+    [service, incidents, maintenance, historyDays]
   );
   const history = service.history || {};
 
@@ -288,10 +326,14 @@ function HistoryCalendar({ service, incidents, maintenance, onChange }) {
   }
 
   return (
-    <div className="history-editor" aria-label={`Recent service history for ${service.name || 'service'}`}>
+    <div
+      className="history-editor"
+      aria-label={`Recent service history for ${service.name || 'service'}`}
+      style={{ '--history-columns': Math.min(historyDays, 30), '--history-mobile-columns': Math.min(historyDays, 15) }}
+    >
       <div className="history-editor-toolbar">
         <div>
-          <span>Last 30 days</span>
+          <span>Last {historyDays} day{historyDays === 1 ? '' : 's'}</span>
           <small>Incident and maintenance reports are overlaid automatically; the most severe state wins.</small>
         </div>
         <span className="automatic-key"><i aria-hidden="true" /> Auto-detected</span>
@@ -433,6 +475,26 @@ export function AdminPage() {
     window.addEventListener('beforeunload', warnBeforeUnload);
     return () => window.removeEventListener('beforeunload', warnBeforeUnload);
   }, [dirty]);
+
+  useEffect(() => {
+    if (!authenticated) {
+      return undefined;
+    }
+
+    function saveWithKeyboard(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 's') {
+        return;
+      }
+
+      event.preventDefault();
+      if (!event.repeat && dirty && !saving && !loading && config) {
+        document.getElementById('status-editor')?.requestSubmit();
+      }
+    }
+
+    window.addEventListener('keydown', saveWithKeyboard);
+    return () => window.removeEventListener('keydown', saveWithKeyboard);
+  }, [authenticated, config, dirty, loading, saving]);
 
   function changeConfig(updater) {
     setConfig(updater);
@@ -630,6 +692,9 @@ export function AdminPage() {
     try {
       const normalizedConfig = validateStatusConfig(config);
       const savedConfig = await saveStatus(normalizedConfig, password);
+      if (!historyPreferencesWereSaved(normalizedConfig, savedConfig)) {
+        throw new Error('The running API is out of date and did not save the service history settings. Restart the development server, then save again.');
+      }
       setConfig(removeGeneratedFields(savedConfig));
       setDirty(false);
       setMessage('Status page updated successfully. Automatic history has been recalculated.');
@@ -719,8 +784,16 @@ export function AdminPage() {
         <div className="admin-actions">
           {dirty ? <span className="unsaved-badge">Unsaved changes</span> : <span className="saved-badge">Up to date</span>}
           <a className="secondary-button button-link" href="/" target="_blank" rel="noreferrer">Preview</a>
-          <button className="primary-button" type="submit" form="status-editor" disabled={saving || loading || !config || !dirty}>
-            {saving ? 'Saving...' : 'Save changes'}
+          <button
+            className="primary-button save-button"
+            type="submit"
+            form="status-editor"
+            disabled={saving || loading || !config || !dirty}
+            aria-keyshortcuts="Control+S Meta+S"
+            title="Save changes (Ctrl+S or Command+S)"
+          >
+            <span>{saving ? 'Saving...' : 'Save changes'}</span>
+            {!saving ? <kbd>Ctrl/⌘ S</kbd> : null}
           </button>
         </div>
       </header>
@@ -776,12 +849,38 @@ export function AdminPage() {
                   />
                   <TextArea label="Description" value={service.description} onChange={(value) => updateListItem('services', index, 'description', value)} rows={3} />
                 </div>
-                <HistoryCalendar
-                  service={service}
-                  incidents={config.incidents}
-                  maintenance={config.maintenance}
-                  onChange={(value) => updateListItem('services', index, 'history', value)}
-                />
+                <fieldset className="history-settings-field">
+                  <legend>Public history</legend>
+                  <label className="history-visibility-option">
+                    <input
+                      type="checkbox"
+                      checked={service.showHistory}
+                      onChange={(event) => updateListItem('services', index, 'showHistory', event.target.checked)}
+                    />
+                    <span>
+                      <strong>Show history on the public status page</strong>
+                      <small>Turn this off to show only the service description and current status.</small>
+                    </span>
+                  </label>
+                  <NumberInput
+                    label="History range in days"
+                    value={service.historyDays}
+                    min={MIN_HISTORY_DAYS}
+                    max={MAX_HISTORY_DAYS}
+                    hint={`Choose any whole number from ${MIN_HISTORY_DAYS} to ${MAX_HISTORY_DAYS}. This service can differ from the others.`}
+                    onChange={(value) => updateListItem('services', index, 'historyDays', value)}
+                  />
+                </fieldset>
+                {service.showHistory ? (
+                  <HistoryCalendar
+                    service={service}
+                    incidents={config.incidents}
+                    maintenance={config.maintenance}
+                    onChange={(value) => updateListItem('services', index, 'history', value)}
+                  />
+                ) : (
+                  <p className="history-hidden-note">History is hidden for this service. Existing history data is preserved.</p>
+                )}
               </article>
             )) : <EmptyEditor>No services configured yet.</EmptyEditor>}
           </EditorSection>

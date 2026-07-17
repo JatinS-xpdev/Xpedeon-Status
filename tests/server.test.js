@@ -86,6 +86,8 @@ test('admin login and atomic status update require the configured password', asy
       assert.equal(successfulLogin.status, 200);
 
       const nextConfig = sampleConfig();
+      nextConfig.services[0].showHistory = false;
+      nextConfig.services[0].historyDays = 60;
       nextConfig.incidents.push({
         id: 'incident-api',
         title: 'API slowdown',
@@ -108,10 +110,14 @@ test('admin login and atomic status update require the configured password', asy
       assert.equal(updateResponse.status, 200);
       const updated = await updateResponse.json();
       assert.equal(updated.incidents.length, 1);
+      assert.equal(updated.services[0].showHistory, false);
+      assert.equal(updated.services[0].historyDays, 60);
 
       const persisted = JSON.parse(await readFile(configFile, 'utf8'));
       assert.equal(persisted.incidents[0].id, 'incident-api');
       assert.equal(persisted.incidents[0].riskLevel, 'minor');
+      assert.equal(persisted.services[0].showHistory, false);
+      assert.equal(persisted.services[0].historyDays, 60);
     });
   } finally {
     await rm(directory, { recursive: true, force: true });

@@ -186,6 +186,8 @@ The persisted file contains four top-level sections:
   "name": "Application API",
   "description": "Backend APIs used by web and mobile clients.",
   "status": "operational",
+  "showHistory": true,
+  "historyDays": 14,
   "history": {
     "2026-07-03": "maintenance"
   }
@@ -199,7 +201,7 @@ Supported service statuses:
 - `maintenance`
 - `outage`
 
-`status` is the manual current baseline. Missing past dates use the operational baseline. Add a `history` entry only when a historical day needs a manual override; incident and maintenance reports are overlaid automatically.
+`status` is the manual current baseline. `showHistory` controls whether the public service card includes history, and `historyDays` sets that service's range from 1 to 60 days. Existing configurations default to visible 30-day history. Missing past dates use the operational baseline. Add a `history` entry only when a historical day needs a manual override; incident and maintenance reports are overlaid automatically.
 
 ### Incident report
 
@@ -293,6 +295,7 @@ Configuration writes use a temporary file followed by an atomic rename to reduce
 npm run dev       # API and Vite development server
 npm run client    # Vite only
 npm run server    # Express API only
+npm run server:dev # Express API with automatic reloads
 npm run build     # Production bundle
 npm run preview   # Preview the Vite bundle
 npm start         # Start Express; serves dist when it exists

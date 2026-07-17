@@ -58,6 +58,7 @@
 
 ## Correctness fixes
 
+- Existing service data without explicit history preferences remains visible on the public page, including during frontend-only development reloads.
 - Past dates with no explicit history no longer inherit today's degraded or outage state; they use an operational baseline.
 - Calendar keys now follow the viewer's local date instead of UTC, preventing early-hours date shifts in time zones such as India.
 - Event ranges are treated as half-open, so an event ending exactly at midnight does not incorrectly mark the following day.
@@ -79,6 +80,8 @@
 
 ## Administration UX
 
+- Added `Ctrl+S` and `Command+S` keyboard shortcuts for saving valid admin changes, with a discoverable hint on the save button.
+- Added per-service controls for public history visibility and a customizable 1-to-60-day display range, with a 30-day default.
 - Added a show/hide control to the administrator password field and concise guidance explaining where the server password is changed.
 - Added explicit incident start, update and resolved fields.
 - Added a per-incident resolution control with clear live-status consequences.
@@ -92,6 +95,7 @@
 
 ## Public-page UI
 
+- Service cards now respect their own history visibility and day range while retaining a balanced current-status-only layout when history is hidden.
 - Reworked the service board around expandable, date-level history.
 - Added a Recently Resolved incident panel with resolution timestamps and affected-service details.
 - Added current-state auto-adjustment notes.
@@ -102,6 +106,7 @@
 
 ## Server and project cleanup
 
+- Development mode now reloads the API when its server or shared status schema changes, and the admin editor detects outdated servers that discard history preferences.
 - Added shared normalization and validation used by the UI and API.
 - Added `/api/health` and API integration tests.
 - Added failed-login throttling and timing-safe password comparison.

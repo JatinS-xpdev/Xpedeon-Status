@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   buildServiceTimeline,
+  DEFAULT_HISTORY_DAYS,
   formatDateOnly,
   formatDateTime,
   getActiveIncidents,
@@ -195,12 +196,13 @@ function HistorySource({ source }) {
 }
 
 function ExpandableStatusHistory({ service, incidents, maintenance, referenceTime }) {
+  const historyDays = Number.isInteger(service.historyDays) ? service.historyDays : DEFAULT_HISTORY_DAYS;
   const timeline = useMemo(
     () => buildServiceTimeline({
       ...service,
       status: service.configuredStatus ?? service.status
-    }, incidents, maintenance, 30, referenceTime),
-    [service, incidents, maintenance, referenceTime]
+    }, incidents, maintenance, historyDays, referenceTime),
+    [service, incidents, maintenance, historyDays, referenceTime]
   );
   const today = timeline[timeline.length - 1];
   const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
@@ -217,7 +219,10 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   }, [pinned, today?.date]);
 
   return (
-    <div className={`service-history-shell${isOpen ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}>
+    <div
+      className={`service-history-shell${isOpen ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}
+      style={{ '--history-columns': Math.min(historyDays, 30), '--history-mobile-columns': Math.min(historyDays, 15) }}
+    >
       <div className="history-track-heading">
         <button
           className="history-toggle-button"
@@ -230,7 +235,7 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
             <i /><i /><i /><i /><i />
           </span>
           <span className="history-toggle-copy">
-            <strong>{isOpen ? 'Close 30-day history' : 'View 30-day history'}</strong>
+            <strong>{isOpen ? `Close ${historyDays}-day history` : `View ${historyDays}-day history`}</strong>
             <small>{eventDayCount ? `${eventDayCount} affected day${eventDayCount === 1 ? '' : 's'}` : 'No reported events'}</small>
           </span>
           <span className="history-toggle-chevron" aria-hidden="true">⌄</span>
@@ -303,32 +308,40 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
 function ServiceRow({ service, incidents, maintenance, referenceTime }) {
   const meta = STATUS_META[service.status] ?? STATUS_META.outage;
   const isAutomaticallyChanged = service.configuredStatus && service.configuredStatus !== service.status;
+  const showHistory = service.showHistory !== false;
 
   return (
-    <article className={`service-row service-row-${meta.tone}`}>
+    <article className={`service-row service-row-${meta.tone}${showHistory ? '' : ' service-row-without-history'}`}>
       <div className="service-copy">
         <h3>{service.name}</h3>
         <p>{service.description}</p>
         {isAutomaticallyChanged ? <span className="auto-status-note">Automatically adjusted by an active report</span> : null}
       </div>
-      <ExpandableStatusHistory
-        service={service}
-        incidents={incidents}
-        maintenance={maintenance}
-        referenceTime={referenceTime}
-      />
+      {showHistory ? (
+        <ExpandableStatusHistory
+          service={service}
+          incidents={incidents}
+          maintenance={maintenance}
+          referenceTime={referenceTime}
+        />
+      ) : null}
       <StatusPill status={service.status} />
     </article>
   );
 }
 
 function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
+  const visibleHistoryCount = services.filter((service) => service.showHistory !== false).length;
   return (
     <section className="status-board" aria-labelledby="service-board-title">
       <div className="board-heading">
         <div>
           <h2 id="service-board-title">Services</h2>
-          <p>Status bars update automatically from reports. Open a service's 30-day history, then select a date for details.</p>
+          <p>
+            {visibleHistoryCount
+              ? 'History ranges are configured per service. Open a history panel, then select a date for details.'
+              : 'Current availability is shown for each configured service.'}
+          </p>
         </div>
         <div className="legend" aria-label="Legend">
           {SERVICE_STATUSES.map((status) => {

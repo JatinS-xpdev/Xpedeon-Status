@@ -297,6 +297,8 @@ test('normalizes legacy reports with stable IDs, all-service scope and inferred 
   });
 
   assert.equal(normalized.services[0].id, 'service-web-app');
+  assert.equal(normalized.services[0].showHistory, true);
+  assert.equal(normalized.services[0].historyDays, 30);
   assert.equal(normalized.incidents[0].startedAt, normalized.incidents[0].updatedAt);
   assert.equal(normalized.incidents[0].affectsAllServices, true);
   assert.equal(normalized.maintenance[0].endsAt, '2026-07-10T10:45:00.000Z');
@@ -339,6 +341,29 @@ test('normalization makes an explicit resolution date authoritative', () => {
 
   assert.equal(normalized.incidents[0].status, 'Resolved');
   assert.equal(normalized.incidents[0].updatedAt, '2026-07-09T10:00:00.000Z');
+});
+
+test('normalizes per-service history display preferences', () => {
+  const config = baseConfig();
+  const normalized = normalizeStatusConfig({
+    ...config,
+    services: [
+      { ...config.services[0], showHistory: false, historyDays: 7 },
+      config.services[1]
+    ]
+  });
+
+  assert.equal(normalized.services[0].showHistory, false);
+  assert.equal(normalized.services[0].historyDays, 7);
+  assert.equal(normalized.services[1].showHistory, true);
+  assert.equal(normalized.services[1].historyDays, 30);
+});
+
+test('keeps history visible by default for services without display preferences', () => {
+  const normalized = normalizeStatusConfig(baseConfig());
+
+  assert.ok(normalized.services.every((service) => service.showHistory === true));
+  assert.ok(normalized.services.every((service) => service.historyDays === 30));
 });
 
 test('prunes only reports whose end time is more than 30 days old', () => {
@@ -565,6 +590,22 @@ test('validation rejects unsupported statuses, risk levels and unknown service r
       services: [{ ...valid.services[0], history: { '2026-02-31': 'operational' } }]
     }),
     /invalid date/
+  );
+
+  assert.throws(
+    () => validateStatusConfig({
+      ...valid,
+      services: [{ ...valid.services[0], historyDays: 61 }]
+    }),
+    /history days must be an integer from 1 to 60/
+  );
+
+  assert.throws(
+    () => validateStatusConfig({
+      ...valid,
+      services: [{ ...valid.services[0], showHistory: 'yes' }]
+    }),
+    /history visibility must be true or false/
   );
 });
 

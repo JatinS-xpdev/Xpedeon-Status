@@ -28,6 +28,9 @@ const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_MAINTENANCE_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const REPORT_RETENTION_DAYS = 30;
+export const DEFAULT_HISTORY_DAYS = 30;
+export const MIN_HISTORY_DAYS = 1;
+export const MAX_HISTORY_DAYS = 60;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -678,6 +681,8 @@ export function createEmptyService() {
     name: '',
     description: '',
     status: 'operational',
+    showHistory: true,
+    historyDays: DEFAULT_HISTORY_DAYS,
     history: {}
   };
 }
@@ -760,6 +765,10 @@ function normalizeServices(services) {
     name: cleanString(service.name),
     description: cleanString(service.description),
     status: normalizeServiceStatus(service.status),
+    showHistory: service.showHistory !== false,
+    historyDays: Number.isInteger(service.historyDays)
+      ? Math.min(MAX_HISTORY_DAYS, Math.max(MIN_HISTORY_DAYS, service.historyDays))
+      : DEFAULT_HISTORY_DAYS,
     history: normalizeHistory(service.history)
   }));
 }
@@ -889,6 +898,17 @@ export function validateStatusConfig(config = {}) {
 
   config.services.forEach((service, index) => {
     validateRawStatus(service?.status, `Service ${index + 1}`);
+    if (service?.showHistory !== undefined && typeof service.showHistory !== 'boolean') {
+      throw new Error(`Service ${index + 1} history visibility must be true or false`);
+    }
+    if (
+      service?.historyDays !== undefined
+      && (!Number.isInteger(service.historyDays)
+        || service.historyDays < MIN_HISTORY_DAYS
+        || service.historyDays > MAX_HISTORY_DAYS)
+    ) {
+      throw new Error(`Service ${index + 1} history days must be an integer from ${MIN_HISTORY_DAYS} to ${MAX_HISTORY_DAYS}`);
+    }
     if (isPlainObject(service?.history)) {
       Object.entries(service.history).forEach(([date, value]) => {
         if (!isValidDateKey(date)) {
