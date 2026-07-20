@@ -7,18 +7,6 @@
 - Kept the newer information architecture and all existing functionality while removing the later experimental color palette.
 - Removed the inherited space below the full-width public footer so its background now finishes cleanly at the viewport edge.
 
-## Twilio Status-inspired interface overhaul
-
-- Reworked the current interface around Twilio Status's broad dashboard structure, responsive navigation and light application background.
-- Presented services as responsive status cards with always-visible uptime, while retaining every configurable history, incident, maintenance and date-detail interaction.
-- Updated public navigation, alerts, report panels, footer, login and administration surfaces to use one cohesive dashboard system.
-
-## Claude Status-inspired interface overhaul
-
-- Rebuilt the public page around a narrow editorial layout, black-led typography, flat white surfaces and restrained borders while retaining Xpedeon's purple accent and semantic status colors.
-- Service uptime bars are visible by default, with date selection opening the existing detailed incident, maintenance and manual-history view.
-- Restyled incidents, maintenance, resolved reports, navigation, login and the complete administration editor as one cohesive responsive system without removing any controls or saved fields.
-
 ## Timestamped report updates
 
 - Incident updates can now change risk level; the newest update drives the public incident badge and automatic service impact, and each public update displays its recorded risk.
