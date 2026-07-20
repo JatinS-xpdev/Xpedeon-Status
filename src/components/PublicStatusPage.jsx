@@ -26,7 +26,7 @@ function Nav({ supportEmail, onRefresh, refreshing }) {
     <nav className="top-nav" aria-label="Primary navigation">
       <a className="brand-link" href="/" aria-label="Xpedeon status home">
         <span className="brand-mark" aria-hidden="true" />
-        <span>Xpedeon</span>
+        <span>Xpedeon Status</span>
       </a>
       <div>
         <a href="#services">Current status</a>
