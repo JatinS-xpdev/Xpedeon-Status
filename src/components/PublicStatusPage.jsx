@@ -26,10 +26,12 @@ function Nav({ supportEmail, onRefresh, refreshing }) {
     <nav className="top-nav" aria-label="Primary navigation">
       <a className="brand-link" href="/" aria-label="Xpedeon status home">
         <span className="brand-mark" aria-hidden="true" />
-        <span>Xpedeon</span>
+        <span>Xpedeon Status</span>
       </a>
       <div>
-        <a href="/">Status</a>
+        <a href="#services">Current status</a>
+        <a href="#maintenance">Maintenance</a>
+        <a href="#active-incidents">Incidents</a>
         <a href="/admin">Admin</a>
         {supportHref ? <a href={supportHref}>Support</a> : null}
         {onRefresh ? (
@@ -96,6 +98,7 @@ function IncidentBanner({ incidents, services }) {
               <p className="incident-item-message">{incident.message}</p>
               {incident.impact ? <p className="incident-item-impact"><strong>Impact:</strong> {incident.impact}</p> : null}
               <AffectedServices event={incident} services={services} />
+              <EventUpdateLog updates={incident.updates} type="incident" />
             </article>
           );
         })}
@@ -215,20 +218,19 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   const today = timeline[timeline.length - 1];
   const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
   const [isOpen, setIsOpen] = useState(false);
-  const [pinned, setPinned] = useState(false);
   const selected = timeline.find((entry) => entry.date === selectedDate) ?? today;
   const detailId = `history-detail-${service.id}`;
   const eventDayCount = timeline.filter((entry) => entry.isAutomatic).length;
 
   useEffect(() => {
-    if (!pinned && today?.date) {
+    if (today?.date && !timeline.some((entry) => entry.date === selectedDate)) {
       setSelectedDate(today.date);
     }
-  }, [pinned, today?.date]);
+  }, [selectedDate, timeline, today?.date]);
 
   return (
     <div
-      className={`service-history-shell${isOpen ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}
+      className={`service-history-shell${isOpen ? ' is-expanded' : ''}`}
       style={{ '--history-columns': Math.min(historyDays, 30), '--history-mobile-columns': Math.min(historyDays, 15) }}
     >
       <div className="history-track-heading">
@@ -243,39 +245,37 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
             <i /><i /><i /><i /><i />
           </span>
           <span className="history-toggle-copy">
-            <strong>{isOpen ? `Close ${historyDays}-day history` : `View ${historyDays}-day history`}</strong>
+            <strong>{historyDays}-day uptime</strong>
             <small>{eventDayCount ? `${eventDayCount} affected day${eventDayCount === 1 ? '' : 's'}` : 'No reported events'}</small>
           </span>
-          <span className="history-toggle-chevron" aria-hidden="true">⌄</span>
+          <span className="history-toggle-action">{isOpen ? 'Close details' : 'View details'}</span>
         </button>
       </div>
 
-      {isOpen ? (
-        <>
-          <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
-            {timeline.map((entry) => (
-              <button
-                type="button"
-                className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date ? ' is-selected' : ''}`}
-                key={entry.date}
-                title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
-                aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
-                aria-pressed={selected?.date === entry.date}
-                aria-current={entry.isToday ? 'date' : undefined}
-                aria-controls={detailId}
-                aria-expanded={selected?.date === entry.date}
-                onClick={() => {
-                  setSelectedDate(entry.date);
-                  setPinned((current) => selected?.date === entry.date ? !current : true);
-                }}
-              >
-                <span className="uptime-day">{entry.date.slice(8)}</span>
-                {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
-              </button>
-            ))}
-          </div>
+      <div className="uptime-track" aria-label={`Recent status history for ${service.name}`}>
+        {timeline.map((entry) => (
+          <button
+            type="button"
+            className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date && isOpen ? ' is-selected' : ''}`}
+            key={entry.date}
+            title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
+            aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
+            aria-pressed={selected?.date === entry.date && isOpen}
+            aria-current={entry.isToday ? 'date' : undefined}
+            aria-controls={detailId}
+            aria-expanded={selected?.date === entry.date && isOpen}
+            onClick={() => {
+              setSelectedDate(entry.date);
+              setIsOpen(true);
+            }}
+          >
+            <span className="uptime-day">{entry.date.slice(8)}</span>
+            {entry.isAutomatic ? <span className="uptime-event-marker" aria-hidden="true" /> : null}
+          </button>
+        ))}
+      </div>
 
-          {selected ? (
+      {isOpen && selected ? (
             <section id={detailId} className="history-detail" aria-live="polite" aria-label={`History details for ${service.name} on ${selected.date}`}>
               <div className="history-detail-heading">
                 <div>
@@ -285,9 +285,6 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
                 <div className="history-detail-actions">
                   {selected.isAutomatic ? <span className="automatic-badge">Auto-detected</span> : null}
                   <StatusPill status={selected.status} compact />
-                  {pinned ? (
-                    <button className="history-close-button" type="button" onClick={() => setPinned(false)} aria-label="Unpin history details">×</button>
-                  ) : null}
                 </div>
               </div>
               {selected.sources.length ? (
@@ -306,8 +303,6 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
                 </div>
               )}
             </section>
-          ) : null}
-        </>
       ) : null}
     </div>
   );
@@ -341,13 +336,13 @@ function ServiceRow({ service, incidents, maintenance, referenceTime }) {
 function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
   const visibleHistoryCount = services.filter((service) => service.showHistory !== false).length;
   return (
-    <section className="status-board" aria-labelledby="service-board-title">
+    <section className="status-board" id="services" aria-labelledby="service-board-title">
       <div className="board-heading">
         <div>
           <h2 id="service-board-title">Services</h2>
           <p>
             {visibleHistoryCount
-              ? 'History ranges are configured per service. Open a history panel, then select a date for details.'
+              ? 'Daily uptime is shown for each service. Select any day to inspect its incident and maintenance details.'
               : 'Current availability is shown for each configured service.'}
           </p>
         </div>
@@ -457,7 +452,7 @@ function ResolvedIncidentList({ incidents, services }) {
 
 function MaintenanceList({ maintenance, services, referenceTime }) {
   return (
-    <section className="panel" aria-labelledby="scheduled-maintenance-title">
+    <section className="panel" id="maintenance" aria-labelledby="scheduled-maintenance-title">
       <div className="section-heading">
         <div>
           <h2 id="scheduled-maintenance-title">Maintenance</h2>
