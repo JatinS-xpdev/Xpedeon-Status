@@ -98,6 +98,7 @@ function IncidentBanner({ incidents, services }) {
               <p className="incident-item-message">{incident.message}</p>
               {incident.impact ? <p className="incident-item-impact"><strong>Impact:</strong> {incident.impact}</p> : null}
               <AffectedServices event={incident} services={services} />
+              <EventUpdateLog updates={incident.updates} type="incident" />
             </article>
           );
         })}
