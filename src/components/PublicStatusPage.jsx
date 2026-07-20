@@ -217,20 +217,19 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   const today = timeline[timeline.length - 1];
   const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
   const [isOpen, setIsOpen] = useState(false);
-  const [pinned, setPinned] = useState(false);
   const selected = timeline.find((entry) => entry.date === selectedDate) ?? today;
   const detailId = `history-detail-${service.id}`;
   const eventDayCount = timeline.filter((entry) => entry.isAutomatic).length;
 
   useEffect(() => {
-    if (!pinned && today?.date) {
+    if (today?.date && !timeline.some((entry) => entry.date === selectedDate)) {
       setSelectedDate(today.date);
     }
-  }, [pinned, today?.date]);
+  }, [selectedDate, timeline, today?.date]);
 
   return (
     <div
-      className={`service-history-shell${isOpen ? ' is-expanded' : ''}${pinned ? ' is-pinned' : ''}`}
+      className={`service-history-shell${isOpen ? ' is-expanded' : ''}`}
       style={{ '--history-columns': Math.min(historyDays, 30), '--history-mobile-columns': Math.min(historyDays, 15) }}
     >
       <div className="history-track-heading">
@@ -267,7 +266,6 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
             onClick={() => {
               setSelectedDate(entry.date);
               setIsOpen(true);
-              setPinned(true);
             }}
           >
             <span className="uptime-day">{entry.date.slice(8)}</span>
@@ -286,9 +284,6 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
                 <div className="history-detail-actions">
                   {selected.isAutomatic ? <span className="automatic-badge">Auto-detected</span> : null}
                   <StatusPill status={selected.status} compact />
-                  {pinned ? (
-                    <button className="history-close-button" type="button" onClick={() => setPinned(false)} aria-label="Unpin history details">×</button>
-                  ) : null}
                 </div>
               </div>
               {selected.sources.length ? (
