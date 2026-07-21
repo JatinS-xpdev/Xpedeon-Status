@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import xpedeonLogo from '../assets/xpedeon-logo.svg';
 import { fetchStatus, loginAdmin, saveStatus } from '../api.js';
 import {
   buildServiceTimeline,
@@ -805,8 +806,7 @@ export function AdminPage() {
     <main className="page admin-page">
       <nav className="top-nav" aria-label="Primary navigation">
         <a className="brand-link" href="/" aria-label="Xpedeon status home">
-          <span className="brand-mark" aria-hidden="true" />
-          <span>Xpedeon</span>
+          <img className="brand-logo" src={xpedeonLogo} alt="" aria-hidden="true" />
         </a>
         <div>
           <a href="/">Status</a>

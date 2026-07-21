@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import xpedeonLogo from '../assets/xpedeon-logo.svg';
 import {
   buildServiceTimeline,
   DEFAULT_HISTORY_DAYS,
@@ -25,8 +26,8 @@ function Nav({ supportEmail, onRefresh, refreshing }) {
   return (
     <nav className="top-nav" aria-label="Primary navigation">
       <a className="brand-link" href="/" aria-label="Xpedeon status home">
-        <span className="brand-mark" aria-hidden="true" />
-        <span>Xpedeon Status</span>
+        <img className="brand-logo" src={xpedeonLogo} alt="" aria-hidden="true" />
+        <span>Status</span>
       </a>
       <div>
         <a href="#services">Current status</a>
