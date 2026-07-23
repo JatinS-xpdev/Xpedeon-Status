@@ -1,9 +1,15 @@
-export const STATUS_META = Object.freeze({
-  operational: Object.freeze({ label: 'Operational', rank: 0, tone: 'good' }),
-  degraded: Object.freeze({ label: 'Degraded Performance', rank: 1, tone: 'warn' }),
-  maintenance: Object.freeze({ label: 'Maintenance', rank: 2, tone: 'info' }),
-  outage: Object.freeze({ label: 'Major Outage', rank: 3, tone: 'bad' })
-});
+export const CORE_STATUS_IDS = Object.freeze(['operational', 'degraded', 'maintenance', 'outage']);
+
+export const DEFAULT_STATUS_CATEGORIES = Object.freeze([
+  Object.freeze({ id: 'operational', label: 'Operational', color: '#159957', rank: 0, tone: 'good' }),
+  Object.freeze({ id: 'degraded', label: 'Degraded Performance', color: '#BA6D00', rank: 1, tone: 'warn' }),
+  Object.freeze({ id: 'maintenance', label: 'Maintenance', color: '#2563EB', rank: 2, tone: 'info' }),
+  Object.freeze({ id: 'outage', label: 'Major Outage', color: '#D92828', rank: 3, tone: 'bad' })
+]);
+
+export const STATUS_META = Object.freeze(Object.fromEntries(
+  DEFAULT_STATUS_CATEGORIES.map((category) => [category.id, category])
+));
 
 export const SERVICE_STATUSES = Object.freeze(Object.keys(STATUS_META));
 export const STATUS_SET = Object.freeze(new Set(SERVICE_STATUSES));
@@ -25,6 +31,8 @@ export const DEFAULT_PAGE = Object.freeze({
 
 const RESOLVED_STATUS_PATTERN = /\b(resolved|closed|completed|fixed)\b/i;
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const STATUS_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const DEFAULT_MAINTENANCE_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const REPORT_RETENTION_DAYS = 30;
@@ -85,14 +93,99 @@ function createRuntimeId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function normalizeServiceStatus(value, fallbackStatus = 'operational') {
+function getToneForRank(rank) {
+  if (rank <= 0) return 'good';
+  if (rank <= 1) return 'warn';
+  if (rank <= 2) return 'info';
+  return 'bad';
+}
+
+function normalizeStatusCategoryId(value) {
+  const id = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return STATUS_ID_PATTERN.test(id) ? id : '';
+}
+
+function normalizeStatusColor(value, fallback = '#6D28D9') {
+  const color = typeof value === 'string' ? value.trim() : '';
+  return HEX_COLOR_PATTERN.test(color) ? color.toUpperCase() : fallback;
+}
+
+export function normalizeStatusCategories(categories) {
+  const rawCategories = Array.isArray(categories) && categories.length
+    ? categories
+    : DEFAULT_STATUS_CATEGORIES;
+  const defaultsById = new Map(DEFAULT_STATUS_CATEGORIES.map((category) => [category.id, category]));
+  const seenIds = new Set();
+  const normalized = [];
+
+  rawCategories.forEach((category = {}, index) => {
+    const id = normalizeStatusCategoryId(category.id);
+    if (!id || seenIds.has(id)) {
+      return;
+    }
+
+    const defaults = defaultsById.get(id);
+    const rawRank = Number(category.rank);
+    const rank = Number.isInteger(rawRank) && rawRank >= 0 && rawRank <= 100
+      ? rawRank
+      : defaults?.rank ?? Math.min(index, 100);
+    normalized.push({
+      id,
+      label: cleanString(category.label, defaults?.label || id.replace(/[-_]+/g, ' ')),
+      color: normalizeStatusColor(category.color, defaults?.color),
+      rank,
+      tone: defaults?.tone || getToneForRank(rank)
+    });
+    seenIds.add(id);
+  });
+
+  DEFAULT_STATUS_CATEGORIES.forEach((category) => {
+    if (!seenIds.has(category.id)) {
+      normalized.push({ ...category });
+    }
+  });
+
+  return normalized
+    .map((category, index) => ({ ...category, _order: index }))
+    .sort((left, right) => left.rank - right.rank || left._order - right._order)
+    .map(({ _order, ...category }) => category);
+}
+
+export function getStatusMetaMap(categories) {
+  if (categories === undefined) {
+    return STATUS_META;
+  }
+  return Object.fromEntries(
+    normalizeStatusCategories(categories).map((category) => [category.id, category])
+  );
+}
+
+export function getStatusDefinition(status, categories, fallbackStatus = 'operational') {
+  const meta = getStatusMetaMap(categories);
+  const normalized = normalizeServiceStatus(status, fallbackStatus, categories);
+  return meta[normalized] || meta.operational || STATUS_META.operational;
+}
+
+export function createEmptyStatusCategory(categories = []) {
+  const normalized = normalizeStatusCategories(categories);
+  const highestRank = normalized.reduce((highest, category) => Math.max(highest, category.rank), 0);
+  return {
+    id: createRuntimeId('status'),
+    label: 'New status',
+    color: '#6D28D9',
+    rank: Math.min(highestRank + 1, 100)
+  };
+}
+
+export function normalizeServiceStatus(value, fallbackStatus = 'operational', categories) {
+  const statusSet = new Set(normalizeStatusCategories(categories).map((category) => category.id));
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (STATUS_SET.has(status)) {
+  if (statusSet.has(status)) {
     return status;
   }
 
   const safeFallback = typeof fallbackStatus === 'string' ? fallbackStatus.trim().toLowerCase() : '';
-  return STATUS_SET.has(safeFallback) ? safeFallback : 'operational';
+  return statusSet.has(safeFallback) ? safeFallback : 'operational';
 }
 
 export function normalizeRiskLevel(value, fallbackRisk = 'minor') {
@@ -171,31 +264,32 @@ export function getRecentDateKeys(segmentCount = 30, baseDate = new Date()) {
   });
 }
 
-function normalizeHistoryEntry(value, fallbackStatus) {
+function normalizeHistoryEntry(value, fallbackStatus, categories) {
   if (typeof value === 'string') {
-    return normalizeServiceStatus(value, fallbackStatus);
+    return normalizeServiceStatus(value, fallbackStatus, categories);
   }
   if (isPlainObject(value) && typeof value.status === 'string') {
-    return normalizeServiceStatus(value.status, fallbackStatus);
+    return normalizeServiceStatus(value.status, fallbackStatus, categories);
   }
-  return normalizeServiceStatus(fallbackStatus);
+  return normalizeServiceStatus(fallbackStatus, 'operational', categories);
 }
 
-export function buildStatusSegments(history = {}, segmentCount = 30, fallbackStatus = 'operational', baseDate = new Date()) {
-  const safeFallback = normalizeServiceStatus(fallbackStatus);
+export function buildStatusSegments(history = {}, segmentCount = 30, fallbackStatus = 'operational', baseDate = new Date(), categories) {
+  const safeFallback = normalizeServiceStatus(fallbackStatus, 'operational', categories);
   const historyMap = isPlainObject(history) ? history : {};
   return getRecentDateKeys(segmentCount, baseDate).map((date) =>
-    normalizeHistoryEntry(historyMap[date], safeFallback)
+    normalizeHistoryEntry(historyMap[date], safeFallback, categories)
   );
 }
 
-export function buildStatusTimeline(history = {}, segmentCount = 30, fallbackStatus = 'operational', baseDate = new Date()) {
-  const safeFallback = normalizeServiceStatus(fallbackStatus);
+export function buildStatusTimeline(history = {}, segmentCount = 30, fallbackStatus = 'operational', baseDate = new Date(), categories) {
+  const safeFallback = normalizeServiceStatus(fallbackStatus, 'operational', categories);
   const historyMap = isPlainObject(history) ? history : {};
+  const statusMeta = getStatusMetaMap(categories);
   return getRecentDateKeys(segmentCount, baseDate).map((date) => {
-    const status = normalizeHistoryEntry(historyMap[date], safeFallback);
-    const meta = STATUS_META[status];
-    return { date, status, label: meta.label, tone: meta.tone, sources: [] };
+    const status = normalizeHistoryEntry(historyMap[date], safeFallback, categories);
+    const meta = statusMeta[status];
+    return { date, status, label: meta.label, tone: meta.tone, color: meta.color, sources: [] };
   });
 }
 
@@ -415,21 +509,23 @@ function eventOverlapsDate(startValue, endValue, dateKey) {
   return start < nextDay && (!end || end > dayStart);
 }
 
-function chooseWorseStatus(left, right) {
-  const leftStatus = normalizeServiceStatus(left);
-  const rightStatus = normalizeServiceStatus(right);
-  return STATUS_META[rightStatus].rank > STATUS_META[leftStatus].rank ? rightStatus : leftStatus;
+function chooseWorseStatus(left, right, categories) {
+  const statusMeta = getStatusMetaMap(categories);
+  const leftStatus = normalizeServiceStatus(left, 'operational', categories);
+  const rightStatus = normalizeServiceStatus(right, 'operational', categories);
+  return statusMeta[rightStatus].rank > statusMeta[leftStatus].rank ? rightStatus : leftStatus;
 }
 
-function makeIncidentSource(incident) {
+function makeIncidentSource(incident, categories) {
   const status = getIncidentDerivedStatus(incident.riskLevel);
+  const meta = getStatusDefinition(status, categories);
   return {
     kind: 'incident',
     id: incident.id,
     title: incident.title,
     message: incident.message,
     status,
-    label: STATUS_META[status].label,
+    label: meta.label,
     riskLevel: normalizeRiskLevel(incident.riskLevel),
     incidentStatus: incident.status,
     startedAt: incident.startedAt,
@@ -439,15 +535,16 @@ function makeIncidentSource(incident) {
   };
 }
 
-function makeMaintenanceSource(item) {
+function makeMaintenanceSource(item, categories) {
   const end = getMaintenanceEnd(item);
+  const meta = getStatusDefinition('maintenance', categories);
   return {
     kind: 'maintenance',
     id: item.id,
     title: item.title,
     message: item.message,
     status: 'maintenance',
-    label: STATUS_META.maintenance.label,
+    label: meta.label,
     startedAt: item.scheduledFor,
     endedAt: end?.toISOString() || '',
     duration: item.duration,
@@ -460,7 +557,8 @@ export function buildServiceTimeline(
   incidents = [],
   maintenance = [],
   segmentCount = 30,
-  baseDate = new Date()
+  baseDate = new Date(),
+  categories
 ) {
   const safeService = service || {};
   const serviceId = cleanString(safeService.id, slugify(safeService.name));
@@ -471,8 +569,10 @@ export function buildServiceTimeline(
 
   return getRecentDateKeys(segmentCount, safeActiveEnd).map((date) => {
     const explicitHistory = Object.prototype.hasOwnProperty.call(history, date);
-    const fallback = date === todayKey ? normalizeServiceStatus(safeService.status) : 'operational';
-    let status = normalizeHistoryEntry(history[date], fallback);
+    const fallback = date === todayKey
+      ? normalizeServiceStatus(safeService.status, 'operational', categories)
+      : 'operational';
+    let status = normalizeHistoryEntry(history[date], fallback, categories);
     const sources = [];
 
     if (explicitHistory) {
@@ -481,7 +581,7 @@ export function buildServiceTimeline(
         title: 'Manual history entry',
         message: 'This date was set manually in the status editor.',
         status,
-        label: STATUS_META[status].label
+        label: getStatusDefinition(status, categories).label
       });
     } else if (date === todayKey && status !== 'operational') {
       sources.push({
@@ -489,7 +589,7 @@ export function buildServiceTimeline(
         title: 'Current service status',
         message: 'This state comes from the service’s current status setting.',
         status,
-        label: STATUS_META[status].label
+        label: getStatusDefinition(status, categories).label
       });
     }
 
@@ -500,8 +600,8 @@ export function buildServiceTimeline(
         eventAffectsService(item, serviceId)
         && eventOverlapsDate(item.scheduledFor, end?.toISOString(), date)
       ) {
-        const source = makeMaintenanceSource(item);
-        status = chooseWorseStatus(status, source.status);
+        const source = makeMaintenanceSource(item, categories);
+        status = chooseWorseStatus(status, source.status, categories);
         sources.push(source);
       }
     });
@@ -513,19 +613,21 @@ export function buildServiceTimeline(
         eventAffectsService(incident, serviceId)
         && eventOverlapsDate(incident.startedAt || incident.updatedAt, end.toISOString(), date)
       ) {
-        const source = makeIncidentSource(incident);
-        status = chooseWorseStatus(status, source.status);
+        const source = makeIncidentSource(incident, categories);
+        status = chooseWorseStatus(status, source.status, categories);
         sources.push(source);
       }
     });
 
-    sources.sort((left, right) => STATUS_META[right.status].rank - STATUS_META[left.status].rank);
-    const meta = STATUS_META[status];
+    const statusMeta = getStatusMetaMap(categories);
+    sources.sort((left, right) => statusMeta[right.status].rank - statusMeta[left.status].rank);
+    const meta = statusMeta[status];
     return {
       date,
       status,
       label: meta.label,
       tone: meta.tone,
+      color: meta.color,
       isToday: date === todayKey,
       isAutomatic: sources.some((source) => source.kind === 'incident' || source.kind === 'maintenance'),
       sources
@@ -533,33 +635,33 @@ export function buildServiceTimeline(
   });
 }
 
-export function getEffectiveServiceStatus(service, incidents = [], maintenance = [], at = new Date()) {
+export function getEffectiveServiceStatus(service, incidents = [], maintenance = [], at = new Date(), categories) {
   const serviceId = cleanString(service?.id, slugify(service?.name));
-  let status = normalizeServiceStatus(service?.status);
+  let status = normalizeServiceStatus(service?.status, 'operational', categories);
 
   const maintenanceList = Array.isArray(maintenance) ? maintenance : [];
   maintenanceList.forEach((item) => {
     if (eventAffectsService(item, serviceId) && isMaintenanceActiveAt(item, at)) {
-      status = chooseWorseStatus(status, 'maintenance');
+      status = chooseWorseStatus(status, 'maintenance', categories);
     }
   });
 
   const incidentList = Array.isArray(incidents) ? incidents : [];
   incidentList.forEach((incident) => {
     if (eventAffectsService(incident, serviceId) && isIncidentActiveAt(incident, at)) {
-      status = chooseWorseStatus(status, getIncidentDerivedStatus(incident.riskLevel));
+      status = chooseWorseStatus(status, getIncidentDerivedStatus(incident.riskLevel), categories);
     }
   });
 
   return status;
 }
 
-export function getEffectiveServices(services = [], incidents = [], maintenance = [], at = new Date()) {
+export function getEffectiveServices(services = [], incidents = [], maintenance = [], at = new Date(), categories) {
   const serviceList = Array.isArray(services) ? services : [];
   return serviceList.map((service) => ({
     ...service,
-    configuredStatus: normalizeServiceStatus(service.status),
-    status: getEffectiveServiceStatus(service, incidents, maintenance, at)
+    configuredStatus: normalizeServiceStatus(service.status, 'operational', categories),
+    status: getEffectiveServiceStatus(service, incidents, maintenance, at, categories)
   }));
 }
 
@@ -655,21 +757,23 @@ export function getAffectedServiceNames(event, services = []) {
   return names.length ? names : ['No services selected'];
 }
 
-export function getWorstServiceStatus(services = []) {
+export function getWorstServiceStatus(services = [], categories) {
   const serviceList = Array.isArray(services) ? services : [];
+  const statusMeta = getStatusMetaMap(categories);
   return serviceList.reduce((worst, service) => {
-    const status = normalizeServiceStatus(service?.status, 'outage');
-    const current = STATUS_META[status];
-    return current.rank > worst.rank ? current : worst;
-  }, STATUS_META.operational);
+    const status = normalizeServiceStatus(service?.status, 'outage', categories);
+    const current = statusMeta[status];
+    return !worst || current.rank > worst.rank ? current : worst;
+  }, null) || statusMeta.operational;
 }
 
-export function summarizeServices(services = []) {
-  const summary = Object.fromEntries(SERVICE_STATUSES.map((status) => [status, 0]));
+export function summarizeServices(services = [], categories) {
+  const statusCategories = normalizeStatusCategories(categories);
+  const summary = Object.fromEntries(statusCategories.map((category) => [category.id, 0]));
   const serviceList = Array.isArray(services) ? services : [];
 
   return serviceList.reduce((accumulator, service) => {
-    const status = normalizeServiceStatus(service?.status, 'outage');
+    const status = normalizeServiceStatus(service?.status, 'outage', categories);
     accumulator[status] += 1;
     return accumulator;
   }, summary);
@@ -749,31 +853,31 @@ function normalizeUpdates(updates, fallbackStatus = '', fallbackRiskLevel = '') 
     .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt));
 }
 
-function normalizeHistory(history) {
+function normalizeHistory(history, categories) {
   if (!isPlainObject(history)) {
     return {};
   }
 
   return Object.entries(history).reduce((normalized, [date, value]) => {
     if (isValidDateKey(date)) {
-      normalized[date] = normalizeHistoryEntry(value, 'operational');
+      normalized[date] = normalizeHistoryEntry(value, 'operational', categories);
     }
     return normalized;
   }, {});
 }
 
-function normalizeServices(services) {
+function normalizeServices(services, categories) {
   const usedIds = new Set();
   return (Array.isArray(services) ? services : []).map((service = {}, index) => ({
     id: createStableId('service', service.id, service.name, index, usedIds),
     name: cleanString(service.name),
     description: cleanString(service.description),
-    status: normalizeServiceStatus(service.status),
+    status: normalizeServiceStatus(service.status, 'operational', categories),
     showHistory: service.showHistory !== false,
     historyDays: Number.isInteger(service.historyDays)
       ? Math.min(MAX_HISTORY_DAYS, Math.max(MIN_HISTORY_DAYS, service.historyDays))
       : DEFAULT_HISTORY_DAYS,
-    history: normalizeHistory(service.history)
+    history: normalizeHistory(service.history, categories)
   }));
 }
 
@@ -858,7 +962,8 @@ function normalizeMaintenance(maintenance, services) {
 
 export function normalizeStatusConfig(config = {}) {
   const page = isPlainObject(config.page) ? config.page : {};
-  const services = normalizeServices(config.services);
+  const statusCategories = normalizeStatusCategories(config.statusCategories);
+  const services = normalizeServices(config.services, statusCategories);
 
   return {
     page: {
@@ -866,6 +971,7 @@ export function normalizeStatusConfig(config = {}) {
       description: cleanString(page.description, DEFAULT_PAGE.description),
       supportEmail: cleanString(page.supportEmail, DEFAULT_PAGE.supportEmail)
     },
+    statusCategories,
     services,
     incidents: normalizeIncidents(config.incidents, services),
     maintenance: normalizeMaintenance(config.maintenance, services)
@@ -885,9 +991,9 @@ function assertValidDate(value, fieldName) {
   }
 }
 
-function validateRawStatus(value, fieldName) {
+function validateRawStatus(value, fieldName, statusSet = STATUS_SET) {
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (!STATUS_SET.has(status)) {
+  if (!statusSet.has(status)) {
     throw new Error(`${fieldName} has an unsupported status`);
   }
 }
@@ -901,8 +1007,50 @@ export function validateStatusConfig(config = {}) {
     throw new Error('Services, incidents and maintenance must be arrays');
   }
 
+  if (config.statusCategories !== undefined && !Array.isArray(config.statusCategories)) {
+    throw new Error('Status categories must be an array');
+  }
+
+  const rawCategories = config.statusCategories === undefined
+    ? DEFAULT_STATUS_CATEGORIES
+    : config.statusCategories;
+  if (!rawCategories.length) {
+    throw new Error('At least one status category is required');
+  }
+
+  const categoryIds = new Set();
+  const categoryLabels = new Set();
+  rawCategories.forEach((category, index) => {
+    const number = index + 1;
+    const id = normalizeStatusCategoryId(category?.id);
+    if (!id || category?.id?.trim().toLowerCase() !== id) {
+      throw new Error(`Status category ${number} has an invalid ID`);
+    }
+    if (categoryIds.has(id)) {
+      throw new Error(`Status category IDs must be unique; "${id}" is repeated`);
+    }
+    categoryIds.add(id);
+    assertNonEmptyString(category?.label, `Status category ${number} name`);
+    const comparableLabel = category.label.trim().toLowerCase();
+    if (categoryLabels.has(comparableLabel)) {
+      throw new Error(`Status category names must be unique; "${category.label.trim()}" is repeated`);
+    }
+    categoryLabels.add(comparableLabel);
+    if (!HEX_COLOR_PATTERN.test(category?.color || '')) {
+      throw new Error(`Status category ${number} colour must be a six-digit hex value`);
+    }
+    if (!Number.isInteger(category?.rank) || category.rank < 0 || category.rank > 100) {
+      throw new Error(`Status category ${number} severity must be an integer from 0 to 100`);
+    }
+  });
+  CORE_STATUS_IDS.forEach((id) => {
+    if (!categoryIds.has(id)) {
+      throw new Error(`The "${id}" status category is required for automatic reports`);
+    }
+  });
+
   config.services.forEach((service, index) => {
-    validateRawStatus(service?.status, `Service ${index + 1}`);
+    validateRawStatus(service?.status, `Service ${index + 1}`, categoryIds);
     if (service?.showHistory !== undefined && typeof service.showHistory !== 'boolean') {
       throw new Error(`Service ${index + 1} history visibility must be true or false`);
     }
@@ -920,7 +1068,7 @@ export function validateStatusConfig(config = {}) {
           throw new Error(`Service ${index + 1} history contains an invalid date`);
         }
         const rawStatus = isPlainObject(value) ? value.status : value;
-        validateRawStatus(rawStatus, `Service ${index + 1} history on ${date}`);
+        validateRawStatus(rawStatus, `Service ${index + 1} history on ${date}`, categoryIds);
       });
     }
   });

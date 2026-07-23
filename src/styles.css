@@ -1694,7 +1694,6 @@ input[type="checkbox"] {
   }
 }
 
-
 @media (max-width: 1040px) {
   .service-row {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -3113,5 +3112,63 @@ select:focus {
   .admin-actions > * {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* Configurable service-status categories */
+.pill-custom,
+.card-status-custom,
+.overall-custom {
+  color: var(--status-color);
+  background: color-mix(in srgb, var(--status-color) 11%, white);
+}
+
+.overall-custom {
+  border-color: color-mix(in srgb, var(--status-color) 34%, var(--border));
+}
+
+.overall-custom .overall-label {
+  color: var(--status-color);
+}
+
+.status-color-block {
+  background: var(--status-color);
+}
+
+.color-input-shell {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.color-input-shell .color-picker {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+
+.status-category-card {
+  border-left: 4px solid color-mix(in srgb, var(--brand) 52%, var(--border));
+}
+
+.system-category-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--info) 24%, var(--border));
+  border-radius: 999px;
+  color: var(--info);
+  background: var(--info-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 560px) {
+  .color-input-shell {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
   }
 }

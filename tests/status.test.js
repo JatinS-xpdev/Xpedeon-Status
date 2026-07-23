@@ -5,6 +5,7 @@ import {
   buildServiceTimeline,
   buildStatusSegments,
   createIncidentFollowUp,
+  DEFAULT_STATUS_CATEGORIES,
   formatDateTime,
   getActiveIncidents,
   getAffectedServiceNames,
@@ -506,6 +507,58 @@ test('worst service status follows configured severity ranking', () => {
   assert.equal(worst, STATUS_META.maintenance);
 });
 
+test('custom status categories keep their labels, colours and severity behaviour', () => {
+  const statusCategories = [
+    ...DEFAULT_STATUS_CATEGORIES.map((category) => ({ ...category })),
+    { id: 'partial-outage', label: 'Partial Outage', color: '#7C3AED', rank: 4 }
+  ];
+  const config = baseConfig();
+  config.statusCategories = statusCategories;
+  config.services[0].status = 'partial-outage';
+  config.services[0].history = { '2026-07-08': 'partial-outage' };
+
+  const normalized = validateStatusConfig(config);
+  const customCategory = normalized.statusCategories.find((category) => category.id === 'partial-outage');
+  const worst = getWorstServiceStatus(normalized.services, normalized.statusCategories);
+  const timeline = buildServiceTimeline(
+    normalized.services[0],
+    [],
+    [],
+    1,
+    new Date('2026-07-08T12:00:00.000Z'),
+    normalized.statusCategories
+  );
+
+  assert.deepEqual(customCategory, {
+    id: 'partial-outage',
+    label: 'Partial Outage',
+    color: '#7C3AED',
+    rank: 4,
+    tone: 'bad'
+  });
+  assert.equal(worst.id, 'partial-outage');
+  assert.equal(timeline[0].status, 'partial-outage');
+  assert.equal(timeline[0].color, '#7C3AED');
+});
+
+test('status category validation protects automatic categories and colour values', () => {
+  const missingMaintenance = DEFAULT_STATUS_CATEGORIES
+    .filter((category) => category.id !== 'maintenance')
+    .map((category) => ({ ...category }));
+  const invalidColour = DEFAULT_STATUS_CATEGORIES
+    .map((category) => ({ ...category }))
+    .concat({ id: 'custom', label: 'Custom', color: 'purple', rank: 4 });
+
+  assert.throws(
+    () => validateStatusConfig({ ...baseConfig(), statusCategories: missingMaintenance }),
+    /maintenance.*required/
+  );
+  assert.throws(
+    () => validateStatusConfig({ ...baseConfig(), statusCategories: invalidColour }),
+    /colour must be a six-digit hex value/
+  );
+});
+
 test('affected service labels handle all, selected and empty scopes', () => {
   const services = baseConfig().services;
   assert.deepEqual(getAffectedServiceNames({ affectsAllServices: true }, services), ['All services']);
@@ -647,7 +700,8 @@ test('default status.config.json is valid and migrates to the new report schema'
 
 test('normalization removes generated fields and guarantees arrays', () => {
   const normalized = normalizeStatusConfig({ generatedAt: '2026-07-09T10:00:00.000Z' });
-  assert.deepEqual(Object.keys(normalized), ['page', 'services', 'incidents', 'maintenance']);
+  assert.deepEqual(Object.keys(normalized), ['page', 'statusCategories', 'services', 'incidents', 'maintenance']);
+  assert.equal(normalized.statusCategories.length, DEFAULT_STATUS_CATEGORIES.length);
   assert.deepEqual(normalized.services, []);
   assert.deepEqual(normalized.incidents, []);
   assert.deepEqual(normalized.maintenance, []);

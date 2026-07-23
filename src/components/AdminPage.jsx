@@ -3,17 +3,20 @@ import xpedeonLogo from '../assets/xpedeon-logo.svg';
 import { fetchStatus, loginAdmin, saveStatus } from '../api.js';
 import {
   buildServiceTimeline,
+  CORE_STATUS_IDS,
   createEventUpdate,
   createEmptyIncident,
   createIncidentFollowUp,
   createEmptyMaintenance,
   createEmptyService,
+  createEmptyStatusCategory,
   DEFAULT_HISTORY_DAYS,
   formatDateTime,
   formatDuration,
   fromDateTimeInputValue,
   getActiveIncidents,
   getIncidentDerivedStatus,
+  getStatusDefinition,
   isMaintenanceActiveAt,
   isIncidentResolved,
   MAX_HISTORY_DAYS,
@@ -22,8 +25,6 @@ import {
   RISK_LEVEL_META,
   RISK_LEVELS,
   resolveIncident,
-  SERVICE_STATUSES,
-  STATUS_META,
   toDateTimeInputValue,
   validateStatusConfig
 } from '../status.js';
@@ -37,6 +38,17 @@ function removeGeneratedFields(config) {
 }
 
 function extendedConfigurationWasSaved(requestedConfig, savedConfig) {
+  const savedStatusCategories = new Map(
+    (Array.isArray(savedConfig?.statusCategories) ? savedConfig.statusCategories : [])
+      .map((category) => [category.id, category])
+  );
+  const statusCategoriesSaved = requestedConfig.statusCategories.every((requestedCategory) => {
+    const savedCategory = savedStatusCategories.get(requestedCategory.id);
+    return savedCategory
+      && savedCategory.label === requestedCategory.label
+      && savedCategory.color === requestedCategory.color
+      && savedCategory.rank === requestedCategory.rank;
+  });
   const savedServices = new Map(
     (Array.isArray(savedConfig?.services) ? savedConfig.services : [])
       .map((service) => [service.id, service])
@@ -61,7 +73,7 @@ function extendedConfigurationWasSaved(requestedConfig, savedConfig) {
     ));
   });
 
-  return servicePreferencesSaved && updateRiskLevelsSaved;
+  return statusCategoriesSaved && servicePreferencesSaved && updateRiskLevelsSaved;
 }
 
 function Field({ label, hint, children, className = '' }) {
@@ -132,7 +144,33 @@ function NumberInput({ label, value, onChange, hint, min, max }) {
   );
 }
 
-function EventUpdatesEditor({ kind, updates, currentStatus, currentRiskLevel, onAdd, onChange, onRemove }) {
+function ColorInput({ label = 'Colour', value, onChange, hint }) {
+  const safeValue = /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#6D28D9';
+  return (
+    <Field label={label} hint={hint}>
+      <span className="color-input-shell">
+        <input
+          className="color-picker"
+          type="color"
+          value={safeValue}
+          onChange={(event) => onChange(event.target.value.toUpperCase())}
+          aria-label={`${label} picker`}
+        />
+        <input
+          required
+          type="text"
+          value={value ?? ''}
+          pattern="#[0-9A-Fa-f]{6}"
+          placeholder="#159957"
+          onChange={(event) => onChange(event.target.value)}
+          aria-label={`${label} hex value`}
+        />
+      </span>
+    </Field>
+  );
+}
+
+function EventUpdatesEditor({ kind, updates, currentStatus, currentRiskLevel, categories, onAdd, onChange, onRemove }) {
   const items = Array.isArray(updates) ? updates : [];
   const isIncident = kind === 'incident';
 
@@ -163,6 +201,7 @@ function EventUpdatesEditor({ kind, updates, currentStatus, currentRiskLevel, on
                 {isIncident ? (
                   <RiskLevelSelect
                     value={update.riskLevel || currentRiskLevel}
+                    categories={categories}
                     onChange={(value) => onChange(index, 'riskLevel', value)}
                   />
                 ) : null}
@@ -193,25 +232,25 @@ function ReadOnlyField({ label, value, hint }) {
   );
 }
 
-function StatusSelect({ label = 'Configured status', value, onChange, hint }) {
+function StatusSelect({ label = 'Configured status', value, onChange, hint, categories }) {
   return (
     <Field label={label} hint={hint}>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {SERVICE_STATUSES.map((status) => (
-          <option key={status} value={status}>{STATUS_META[status].label}</option>
+        {categories.map((category) => (
+          <option key={category.id} value={category.id}>{category.label}</option>
         ))}
       </select>
     </Field>
   );
 }
 
-function RiskLevelSelect({ value, onChange }) {
+function RiskLevelSelect({ value, onChange, categories }) {
   return (
     <Field label="Risk level" hint="The public status is detected automatically from this level.">
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         {RISK_LEVELS.map((riskLevel) => {
           const risk = RISK_LEVEL_META[riskLevel];
-          const derived = STATUS_META[risk.derivedStatus];
+          const derived = getStatusDefinition(risk.derivedStatus, categories);
           return <option key={riskLevel} value={riskLevel}>{risk.label} → {derived.label}</option>;
         })}
       </select>
@@ -325,14 +364,14 @@ function AffectedServicesField({ services, affectsAllServices, affectedServiceId
   );
 }
 
-function HistoryCalendar({ service, incidents, maintenance, onChange }) {
+function HistoryCalendar({ service, incidents, maintenance, categories, onChange }) {
   const historyDays = Math.min(
     MAX_HISTORY_DAYS,
     Math.max(MIN_HISTORY_DAYS, Number.isInteger(service.historyDays) ? service.historyDays : DEFAULT_HISTORY_DAYS)
   );
   const timeline = useMemo(
-    () => buildServiceTimeline(service, incidents, maintenance, historyDays),
-    [service, incidents, maintenance, historyDays]
+    () => buildServiceTimeline(service, incidents, maintenance, historyDays, new Date(), categories),
+    [service, incidents, maintenance, historyDays, categories]
   );
   const history = service.history || {};
 
@@ -371,14 +410,16 @@ function HistoryCalendar({ service, incidents, maintenance, onChange }) {
             <div className="history-day" key={entry.date}>
               <button
                 type="button"
-                className={`history-day-button history-day-${entry.tone}${explicitStatus ? ' history-day-explicit' : ''}${entry.isAutomatic ? ' history-day-automatic' : ''}`}
+                className={`history-day-button status-color-block history-day-${entry.tone}${explicitStatus ? ' history-day-explicit' : ''}${entry.isAutomatic ? ' history-day-automatic' : ''}`}
                 title={`${entry.date}: ${entry.label}${sourceTitles ? ` · ${sourceTitles}` : ''}. Click to cycle the manual setting.`}
                 onClick={() => {
                   const currentManualStatus = explicitStatus || 'operational';
-                  const currentIndex = SERVICE_STATUSES.indexOf(currentManualStatus);
-                  const nextStatus = SERVICE_STATUSES[(currentIndex + 1) % SERVICE_STATUSES.length];
+                  const categoryIds = categories.map((category) => category.id);
+                  const currentIndex = categoryIds.indexOf(currentManualStatus);
+                  const nextStatus = categoryIds[(currentIndex + 1) % categoryIds.length];
                   updateDate(entry.date, nextStatus);
                 }}
+                style={{ '--status-color': entry.color }}
               >
                 <span>{entry.date.slice(8)}</span>
                 {entry.isAutomatic ? <i className="history-auto-marker" aria-hidden="true" /> : null}
@@ -398,12 +439,11 @@ function HistoryCalendar({ service, incidents, maintenance, onChange }) {
         })}
       </div>
       <div className="history-legend">
-        {SERVICE_STATUSES.map((status) => {
-          const meta = STATUS_META[status];
+        {categories.map((category) => {
           return (
-            <span key={status}>
-              <i className={`legend-${meta.tone}`} aria-hidden="true" />
-              {meta.label}
+            <span key={category.id}>
+              <i style={{ background: category.color }} aria-hidden="true" />
+              {category.label}
             </span>
           );
         })}
@@ -431,9 +471,13 @@ function EmptyEditor({ children }) {
   return <p className="empty editor-empty">{children}</p>;
 }
 
-function CardStatus({ status, label }) {
-  const meta = STATUS_META[status] ?? STATUS_META.operational;
-  return <span className={`card-status card-status-${meta.tone}`}>{label || meta.label}</span>;
+function CardStatus({ status, label, categories }) {
+  const meta = getStatusDefinition(status, categories);
+  return (
+    <span className="card-status card-status-custom" style={{ '--status-color': meta.color }}>
+      {label || meta.label}
+    </span>
+  );
 }
 
 export function AdminPage() {
@@ -681,6 +725,32 @@ export function AdminPage() {
     });
   }
 
+  function removeStatusCategory(index) {
+    const category = config?.statusCategories?.[index];
+    if (!category || CORE_STATUS_IDS.includes(category.id)) {
+      return;
+    }
+
+    const usedByService = (config.services || []).some((service) => (
+      service.status === category.id
+      || Object.values(service.history || {}).some((value) => (
+        (typeof value === 'string' ? value : value?.status) === category.id
+      ))
+    ));
+    if (usedByService) {
+      setError(`"${category.label}" is in use. Assign those services and history entries to another category before removing it.`);
+      return;
+    }
+    if (!window.confirm(`Remove the "${category.label}" status category?`)) {
+      return;
+    }
+
+    changeConfig((current) => ({
+      ...current,
+      statusCategories: current.statusCategories.filter((_item, itemIndex) => itemIndex !== index)
+    }));
+  }
+
   function markIncidentResolved(index) {
     changeConfig((current) => ({
       ...current,
@@ -845,9 +915,9 @@ export function AdminPage() {
         <form id="status-editor" className="admin-form" onSubmit={handleSave}>
           <section className="admin-overview" aria-label="Status configuration overview">
             <div className="admin-stat"><strong>{editorStats.services}</strong><span>Services</span></div>
+            <div className="admin-stat"><strong>{config.statusCategories.length}</strong><span>Status categories</span></div>
             <div className="admin-stat admin-stat-bad"><strong>{editorStats.activeIncidents}</strong><span>Active incidents</span></div>
             <div className="admin-stat admin-stat-info"><strong>{editorStats.activeMaintenance}</strong><span>Maintenance active</span></div>
-            <div className="admin-stat"><strong>{editorStats.retainedReports}</strong><span>Reports retained</span></div>
             <p>Resolved incidents and completed maintenance are automatically deleted 30 days after their end time.</p>
           </section>
           <section className="admin-section">
@@ -865,6 +935,59 @@ export function AdminPage() {
           </section>
 
           <EditorSection
+            title="Status categories"
+            description="Create the labels and colours shown on service pills, history bars, the legend and overall status. A higher severity number takes priority."
+            actionLabel="Add status category"
+            onAdd={() => addListItem(
+              'statusCategories',
+              () => createEmptyStatusCategory(config.statusCategories)
+            )}
+          >
+            {config.statusCategories.map((category, index) => {
+              const isCoreCategory = CORE_STATUS_IDS.includes(category.id);
+              return (
+                <article className="editor-card status-category-card" key={category.id}>
+                  <div className="editor-card-heading">
+                    <div className="editor-title-row">
+                      <h3>{category.label || `Status category ${index + 1}`}</h3>
+                      <CardStatus status={category.id} categories={config.statusCategories} />
+                      {isCoreCategory ? <span className="system-category-badge">Automatic reports</span> : null}
+                    </div>
+                    {!isCoreCategory ? (
+                      <button className="danger-button" type="button" onClick={() => removeStatusCategory(index)}>Remove</button>
+                    ) : null}
+                  </div>
+                  <div className="form-grid status-category-fields">
+                    <TextInput
+                      label="Category name"
+                      value={category.label}
+                      onChange={(value) => updateListItem('statusCategories', index, 'label', value)}
+                    />
+                    <ColorInput
+                      value={category.color}
+                      hint="Used consistently across all public status indicators."
+                      onChange={(value) => updateListItem('statusCategories', index, 'color', value)}
+                    />
+                    <NumberInput
+                      label="Severity priority"
+                      value={category.rank}
+                      min={0}
+                      max={100}
+                      hint="0 is the normal baseline. The highest active number becomes the overall status."
+                      onChange={(value) => updateListItem('statusCategories', index, 'rank', value)}
+                    />
+                    <ReadOnlyField
+                      label="Category ID"
+                      value={category.id}
+                      hint={isCoreCategory ? 'Required for automatic incident and maintenance detection.' : 'Stable identifier saved with services and history.'}
+                    />
+                  </div>
+                </article>
+              );
+            })}
+          </EditorSection>
+
+          <EditorSection
             title="Services"
             description="The configured status is the manual baseline. Active incident and maintenance reports can automatically raise it."
             actionLabel="Add service"
@@ -875,7 +998,7 @@ export function AdminPage() {
                 <div className="editor-card-heading">
                   <div className="editor-title-row">
                     <h3>{service.name || `Service ${index + 1}`}</h3>
-                    <CardStatus status={service.status} />
+                    <CardStatus status={service.status} categories={config.statusCategories} />
                   </div>
                   <button className="danger-button" type="button" onClick={() => removeService(index)}>Remove</button>
                 </div>
@@ -883,6 +1006,7 @@ export function AdminPage() {
                   <TextInput label="Service name" value={service.name} onChange={(value) => updateListItem('services', index, 'name', value)} />
                   <StatusSelect
                     value={service.status}
+                    categories={config.statusCategories}
                     onChange={(value) => updateListItem('services', index, 'status', value)}
                     hint="Use this for a manual baseline; reports are applied automatically on top."
                   />
@@ -915,6 +1039,7 @@ export function AdminPage() {
                     service={service}
                     incidents={config.incidents}
                     maintenance={config.maintenance}
+                    categories={config.statusCategories}
                     onChange={(value) => updateListItem('services', index, 'history', value)}
                   />
                 ) : (
@@ -940,7 +1065,10 @@ export function AdminPage() {
                       <h3>{incident.title || `Incident ${index + 1}`}</h3>
                       <CardStatus
                         status={resolved ? 'operational' : derivedStatus}
-                        label={resolved ? 'Resolved · no live impact' : `Active · ${STATUS_META[derivedStatus].label}`}
+                        categories={config.statusCategories}
+                        label={resolved
+                          ? 'Resolved · no live impact'
+                          : `Active · ${getStatusDefinition(derivedStatus, config.statusCategories).label}`}
                       />
                     </div>
                     <div className="card-actions">
@@ -961,10 +1089,14 @@ export function AdminPage() {
                     ) : (
                       <IncidentProgressSelect value={incident.status} onChange={(value) => updateListItem('incidents', index, 'status', value)} />
                     )}
-                    <RiskLevelSelect value={incident.riskLevel} onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)} />
+                    <RiskLevelSelect
+                      value={incident.riskLevel}
+                      categories={config.statusCategories}
+                      onChange={(value) => updateListItem('incidents', index, 'riskLevel', value)}
+                    />
                     <ReadOnlyField
                       label="Live service impact"
-                      value={resolved ? 'None — issue resolved' : STATUS_META[derivedStatus].label}
+                      value={resolved ? 'None — issue resolved' : getStatusDefinition(derivedStatus, config.statusCategories).label}
                       hint={resolved
                         ? 'The original impact remains visible in service history.'
                         : 'Minor → Degraded Performance; Major/Critical → Major Outage.'}
@@ -997,6 +1129,7 @@ export function AdminPage() {
                         updates={incident.updates}
                         currentStatus={incident.status}
                         currentRiskLevel={incident.riskLevel}
+                        categories={config.statusCategories}
                         onAdd={() => addEventUpdate('incidents', index)}
                         onChange={(updateIndex, field, value) => updateEventUpdate('incidents', index, updateIndex, field, value)}
                         onRemove={(updateIndex) => removeEventUpdate('incidents', index, updateIndex)}
@@ -1021,13 +1154,20 @@ export function AdminPage() {
                   <div className="editor-card-heading">
                     <div className="editor-title-row">
                       <h3>{item.title || `Maintenance ${index + 1}`}</h3>
-                      <CardStatus status={ended ? 'operational' : 'maintenance'} label={ended ? 'Completed' : 'Auto: Maintenance'} />
+                      <CardStatus
+                        status={ended ? 'operational' : 'maintenance'}
+                        categories={config.statusCategories}
+                        label={ended ? 'Completed' : 'Auto: Maintenance'}
+                      />
                     </div>
                     <button className="danger-button" type="button" onClick={() => removeListItem('maintenance', index)}>Delete</button>
                   </div>
                   <div className="form-grid">
                     <TextInput label="Maintenance title" value={item.title} onChange={(value) => updateListItem('maintenance', index, 'title', value)} />
-                    <ReadOnlyField label="Detected service status" value={STATUS_META.maintenance.label} />
+                    <ReadOnlyField
+                      label="Detected service status"
+                      value={getStatusDefinition('maintenance', config.statusCategories).label}
+                    />
                     <DateTimeInput label="Scheduled start" value={item.scheduledFor} onChange={(value) => updateMaintenanceTime(index, 'scheduledFor', value)} />
                     <DateTimeInput label="Scheduled end" value={item.endsAt} onChange={(value) => updateMaintenanceTime(index, 'endsAt', value)} />
                     <ReadOnlyField label="Calculated duration" value={formatDuration(item.scheduledFor, item.endsAt)} />
@@ -1046,6 +1186,7 @@ export function AdminPage() {
                       <EventUpdatesEditor
                         kind="maintenance"
                         updates={item.updates}
+                        categories={config.statusCategories}
                         onAdd={() => addEventUpdate('maintenance', index)}
                         onChange={(updateIndex, field, value) => updateEventUpdate('maintenance', index, updateIndex, field, value)}
                         onRemove={(updateIndex) => removeEventUpdate('maintenance', index, updateIndex)}

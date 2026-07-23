@@ -167,16 +167,32 @@ An environment template is provided in `.env.example`. The application does not 
 
 ## Configuration model
 
-The persisted file contains four top-level sections:
+The persisted file contains five top-level sections:
 
 ```json
 {
   "page": {},
+  "statusCategories": [],
   "services": [],
   "incidents": [],
   "maintenance": []
 }
 ```
+
+### Status categories
+
+Status categories control every service-status label and colour on the public page. Manage them from **Admin → Status categories**, or configure them directly:
+
+```json
+{
+  "id": "partial-outage",
+  "label": "Partial Outage",
+  "color": "#7C3AED",
+  "rank": 4
+}
+```
+
+`rank` is the severity priority from 0 to 100. When more than one manual or automatic state applies, the category with the highest rank is shown. The `operational`, `degraded`, `maintenance` and `outage` IDs are required for automatic incident and maintenance detection, but their display names, colours and ranks can be customized. Additional categories can be added and assigned to services or manual history entries.
 
 ### Service
 
@@ -194,14 +210,14 @@ The persisted file contains four top-level sections:
 }
 ```
 
-Supported service statuses:
+The default service statuses are:
 
 - `operational`
 - `degraded`
 - `maintenance`
 - `outage`
 
-`status` is the manual current baseline. `showHistory` controls whether the public service card includes history, and `historyDays` sets that service's range from 1 to 60 days. Existing configurations default to visible 30-day history. Missing past dates use the operational baseline. Add a `history` entry only when a historical day needs a manual override; incident and maintenance reports are overlaid automatically.
+`status` is the ID of a configured status category and acts as the manual current baseline. `showHistory` controls whether the public service card includes history, and `historyDays` sets that service's range from 1 to 60 days. Existing configurations default to visible 30-day history. Missing past dates use the operational baseline. Add a `history` entry only when a historical day needs a manual override; incident and maintenance reports are overlaid automatically.
 
 ### Incident report
 

@@ -3,17 +3,17 @@ import xpedeonLogo from '../assets/xpedeon-logo.svg';
 import {
   buildServiceTimeline,
   DEFAULT_HISTORY_DAYS,
+  DEFAULT_STATUS_CATEGORIES,
   formatDateOnly,
   formatDateTime,
   getActiveIncidents,
   getAffectedServiceNames,
   getEffectiveServices,
   getResolvedIncidents,
+  getStatusDefinition,
   getVisibleMaintenance,
   getWorstServiceStatus,
-  RISK_LEVEL_META,
-  SERVICE_STATUSES,
-  STATUS_META
+  RISK_LEVEL_META
 } from '../status.js';
 
 function safeMailto(email) {
@@ -108,10 +108,13 @@ function IncidentBanner({ incidents, services }) {
   );
 }
 
-function StatusPill({ status, compact = false }) {
-  const meta = STATUS_META[status] ?? STATUS_META.outage;
+function StatusPill({ status, categories, compact = false }) {
+  const meta = getStatusDefinition(status, categories, 'outage');
   return (
-    <span className={`pill pill-${meta.tone}${compact ? ' pill-compact' : ''}`}>
+    <span
+      className={`pill pill-custom${compact ? ' pill-compact' : ''}`}
+      style={{ '--status-color': meta.color }}
+    >
       <span className="status-dot" aria-hidden="true" />
       {meta.label}
     </span>
@@ -150,7 +153,7 @@ function EventUpdateLog({ updates, type = 'event' }) {
   );
 }
 
-function HistorySource({ source }) {
+function HistorySource({ source, categories }) {
   if (source.kind === 'incident') {
     const risk = RISK_LEVEL_META[source.riskLevel] ?? RISK_LEVEL_META.minor;
     return (
@@ -160,7 +163,7 @@ function HistorySource({ source }) {
             <span className="history-source-type">Incident · {risk.label}</span>
             <h5>{source.title}</h5>
           </div>
-          <StatusPill status={source.status} compact />
+          <StatusPill status={source.status} categories={categories} compact />
         </div>
         <p>{source.message}</p>
         <dl>
@@ -181,7 +184,7 @@ function HistorySource({ source }) {
             <span className="history-source-type">Maintenance window</span>
             <h5>{source.title}</h5>
           </div>
-          <StatusPill status="maintenance" compact />
+          <StatusPill status="maintenance" categories={categories} compact />
         </div>
         <p>{source.message}</p>
         <dl>
@@ -200,21 +203,21 @@ function HistorySource({ source }) {
           <span className="history-source-type">{source.kind === 'current' ? 'Current setting' : 'Manual history'}</span>
           <h5>{source.title}</h5>
         </div>
-        <StatusPill status={source.status} compact />
+        <StatusPill status={source.status} categories={categories} compact />
       </div>
       <p>{source.message}</p>
     </article>
   );
 }
 
-function ExpandableStatusHistory({ service, incidents, maintenance, referenceTime }) {
+function ExpandableStatusHistory({ service, incidents, maintenance, referenceTime, categories }) {
   const historyDays = Number.isInteger(service.historyDays) ? service.historyDays : DEFAULT_HISTORY_DAYS;
   const timeline = useMemo(
     () => buildServiceTimeline({
       ...service,
       status: service.configuredStatus ?? service.status
-    }, incidents, maintenance, historyDays, referenceTime),
-    [service, incidents, maintenance, historyDays, referenceTime]
+    }, incidents, maintenance, historyDays, referenceTime, categories),
+    [service, incidents, maintenance, historyDays, referenceTime, categories]
   );
   const today = timeline[timeline.length - 1];
   const [selectedDate, setSelectedDate] = useState(today?.date ?? '');
@@ -257,7 +260,7 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
         {timeline.map((entry) => (
           <button
             type="button"
-            className={`uptime-segment uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date && isOpen ? ' is-selected' : ''}`}
+            className={`uptime-segment status-color-block uptime-${entry.tone}${entry.isAutomatic ? ' has-event' : ''}${entry.isToday ? ' is-today' : ''}${selected?.date === entry.date && isOpen ? ' is-selected' : ''}`}
             key={entry.date}
             title={`${entry.date}: ${entry.label}${entry.isAutomatic ? ' · automatic report detected' : ''}`}
             aria-label={`${formatDateOnly(entry.date)}: ${entry.label}`}
@@ -265,6 +268,7 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
             aria-current={entry.isToday ? 'date' : undefined}
             aria-controls={detailId}
             aria-expanded={selected?.date === entry.date && isOpen}
+            style={{ '--status-color': entry.color }}
             onClick={() => {
               setSelectedDate(entry.date);
               setIsOpen(true);
@@ -285,17 +289,24 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
                 </div>
                 <div className="history-detail-actions">
                   {selected.isAutomatic ? <span className="automatic-badge">Auto-detected</span> : null}
-                  <StatusPill status={selected.status} compact />
+                  <StatusPill status={selected.status} categories={categories} compact />
                 </div>
               </div>
               {selected.sources.length ? (
                 <div className="history-source-list">
                   {selected.sources.map((source, index) => (
-                    <HistorySource source={source} key={`${source.kind}-${source.id || source.title}-${index}`} />
+                    <HistorySource
+                      source={source}
+                      categories={categories}
+                      key={`${source.kind}-${source.id || source.title}-${index}`}
+                    />
                   ))}
                 </div>
               ) : (
-                <div className="history-baseline">
+                <div
+                  className="history-baseline"
+                  style={{ color: getStatusDefinition('operational', categories).color }}
+                >
                   <span className="status-dot" aria-hidden="true" />
                   <div>
                     <strong>No incident or maintenance recorded</strong>
@@ -309,8 +320,8 @@ function ExpandableStatusHistory({ service, incidents, maintenance, referenceTim
   );
 }
 
-function ServiceRow({ service, incidents, maintenance, referenceTime }) {
-  const meta = STATUS_META[service.status] ?? STATUS_META.outage;
+function ServiceRow({ service, incidents, maintenance, referenceTime, categories }) {
+  const meta = getStatusDefinition(service.status, categories, 'outage');
   const isAutomaticallyChanged = service.configuredStatus && service.configuredStatus !== service.status;
   const showHistory = service.showHistory !== false;
 
@@ -327,14 +338,15 @@ function ServiceRow({ service, incidents, maintenance, referenceTime }) {
           incidents={incidents}
           maintenance={maintenance}
           referenceTime={referenceTime}
+          categories={categories}
         />
       ) : null}
-      <StatusPill status={service.status} />
+      <StatusPill status={service.status} categories={categories} />
     </article>
   );
 }
 
-function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
+function ServiceBoard({ services, incidents, maintenance, referenceTime, categories }) {
   const visibleHistoryCount = services.filter((service) => service.showHistory !== false).length;
   return (
     <section className="status-board" id="services" aria-labelledby="service-board-title">
@@ -348,12 +360,11 @@ function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
           </p>
         </div>
         <div className="legend" aria-label="Legend">
-          {SERVICE_STATUSES.map((status) => {
-            const meta = STATUS_META[status];
+          {categories.map((category) => {
             return (
-              <span key={status}>
-                <i className={`legend-${meta.tone}`} aria-hidden="true" />
-                {meta.label}
+              <span key={category.id}>
+                <i style={{ background: category.color }} aria-hidden="true" />
+                {category.label}
               </span>
             );
           })}
@@ -366,6 +377,7 @@ function ServiceBoard({ services, incidents, maintenance, referenceTime }) {
             incidents={incidents}
             maintenance={maintenance}
             referenceTime={referenceTime}
+            categories={categories}
             key={service.id}
           />
         )) : <p className="empty board-empty">No services configured.</p>}
@@ -496,7 +508,14 @@ function MaintenanceList({ maintenance, services, referenceTime }) {
 }
 
 export function PublicStatusPage({ statusData, onRefresh, refreshing = false, refreshError = '' }) {
-  const { page = {}, services = [], incidents = [], maintenance = [], generatedAt } = statusData;
+  const {
+    page = {},
+    statusCategories = DEFAULT_STATUS_CATEGORIES,
+    services = [],
+    incidents = [],
+    maintenance = [],
+    generatedAt
+  } = statusData;
   const supportHref = safeMailto(page.supportEmail);
   const referenceTime = useMemo(() => {
     const generatedDate = new Date(generatedAt);
@@ -509,10 +528,12 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
   );
   const visibleMaintenance = useMemo(() => getVisibleMaintenance(maintenance, referenceTime), [maintenance, referenceTime]);
   const effectiveServices = useMemo(
-    () => getEffectiveServices(services, incidents, maintenance, referenceTime),
-    [services, incidents, maintenance, referenceTime]
+    () => getEffectiveServices(services, incidents, maintenance, referenceTime, statusCategories),
+    [services, incidents, maintenance, referenceTime, statusCategories]
   );
-  const overallStatus = effectiveServices.length ? getWorstServiceStatus(effectiveServices) : STATUS_META.operational;
+  const overallStatus = effectiveServices.length
+    ? getWorstServiceStatus(effectiveServices, statusCategories)
+    : getStatusDefinition('operational', statusCategories);
 
   return (
     <main className="page">
@@ -526,7 +547,11 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
           <h1>{page.title || 'Xpedeon Status'}</h1>
           <p className="lede">{page.description || 'Live service availability for Xpedeon products and supporting systems.'}</p>
         </div>
-        <aside className={`overall overall-${overallStatus.tone}`} aria-label="Overall status">
+        <aside
+          className="overall overall-custom"
+          style={{ '--status-color': overallStatus.color }}
+          aria-label="Overall status"
+        >
           <span className="overall-icon" aria-hidden="true"><span className="status-dot" /></span>
           <div>
             <span className="overall-label">{overallStatus.label}</span>
@@ -540,6 +565,7 @@ export function PublicStatusPage({ statusData, onRefresh, refreshing = false, re
         incidents={incidents}
         maintenance={maintenance}
         referenceTime={referenceTime}
+        categories={statusCategories}
       />
 
       <div className="content-grid">
